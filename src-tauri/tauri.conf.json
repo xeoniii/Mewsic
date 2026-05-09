@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Mewsic",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "identifier": "dev.xeoniii.mewsic",
   "build": {
     "beforeDevCommand": "npm run dev",

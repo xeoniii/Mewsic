@@ -2,7 +2,7 @@
   "name": "mewsic",
   "description": "A premium, open-source music player licensed under GPL v3.0, designed for audiophiles with a focus on speed and aesthetics.",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "license": "GPL-3.0-only",
   "author": "xeoniii (https://github.com/xeoniii)",
   "repository": {

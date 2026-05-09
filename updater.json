@@ -1,23 +1,23 @@
 {
-  "version": "0.7.0",
+  "version": "0.7.1",
   "notes": "Mewsic High-Fidelity Audio Engine Update.",
-  "pub_date": "2026-05-08T12:00:00Z",
+  "pub_date": "2026-05-09T10:00:00Z",
   "platforms": {
     "linux-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.0/mewsic_0.7.0_amd64.AppImage.tar.gz"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_amd64.AppImage.tar.gz"
     },
     "windows-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.0/mewsic_0.7.0_x64-setup.nsis.zip"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_x64-setup.nsis.zip"
     },
     "darwin-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.0/mewsic_0.7.0_x64.app.tar.gz"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_x64.app.tar.gz"
     },
     "darwin-aarch64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.0/mewsic_0.7.0_aarch64.app.tar.gz"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_aarch64.app.tar.gz"
     }
   }
 }
