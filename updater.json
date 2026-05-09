@@ -1,23 +1,23 @@
 {
-  "version": "0.7.1",
-  "notes": "Mewsic High-Fidelity Audio Engine Update.",
-  "pub_date": "2026-05-09T10:00:00Z",
+  "version": "0.7.2",
+  "notes": "Mewsic v0.7.2: Asset Server fix and performance optimizations.",
+  "pub_date": "2026-05-09T11:45:00Z",
   "platforms": {
     "linux-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_amd64.AppImage.tar.gz"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.2/mewsic_0.7.2_amd64.AppImage.tar.gz"
     },
     "windows-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_x64-setup.nsis.zip"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.2/mewsic_0.7.2_x64-setup.nsis.zip"
     },
     "darwin-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_x64.app.tar.gz"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.2/mewsic_0.7.2_x64.app.tar.gz"
     },
     "darwin-aarch64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.1/mewsic_0.7.1_aarch64.app.tar.gz"
+      "url": "https://github.com/xeoniii/Mewsic/releases/download/v0.7.2/mewsic_0.7.2_aarch64.app.tar.gz"
     }
   }
 }

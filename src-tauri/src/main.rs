@@ -1375,20 +1375,25 @@ fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn start_asset_server(_port: u16) {
+fn start_asset_server(port: u16) {
+    let addr = format!("127.0.0.1:{}", port);
     std::thread::spawn(move || {
-        let server = Server::http("0.0.0.0:1422").expect("Failed to start asset server");
-        let server = std::sync::Arc::new(server);
-
-        // Spawn 32 worker threads to handle requests in parallel
-        // This prevents slow media streaming from exhausting the pool and blocking image loads
-        for _ in 0..32 {
-            let server = server.clone();
-            std::thread::spawn(move || {
-                for request in server.incoming_requests() {
-                    handle_request(request);
+        match Server::http(&addr) {
+            Ok(server) => {
+                let server = std::sync::Arc::new(server);
+                // Spawn 32 worker threads to handle requests in parallel
+                for _ in 0..32 {
+                    let server = server.clone();
+                    std::thread::spawn(move || {
+                        for request in server.incoming_requests() {
+                            handle_request(request);
+                        }
+                    });
                 }
-            });
+            }
+            Err(e) => {
+                eprintln!("Failed to start asset server on {}: {}", addr, e);
+            }
         }
     });
 }
@@ -1411,7 +1416,7 @@ fn handle_request(request: tiny_http::Request) {
         return;
     }
 
-    let url_str = format!("http://127.0.0.1:1422{}", request.url());
+    let url_str = format!("http://127.0.0.1:1422{}", request.url()); // TODO: Pass port to handle_request if needed
     let Ok(url) = Url::parse(&url_str) else {
         let _ = request.respond(Response::from_string("Invalid URL").with_status_code(400));
         return;
@@ -1634,7 +1639,7 @@ async fn fetch_lyrics(query: String) -> Result<Option<String>, String> {
     let client = reqwest::Client::new();
     let resp = client
         .get(url)
-        .header("User-Agent", "Mewsic/0.6.4 (https://github.com/xeoniii/Mewsic)")
+        .header("User-Agent", "Mewsic/0.7.2 (https://github.com/xeoniii/Mewsic)")
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1732,7 +1737,7 @@ fn main() {
         std::env::set_var("WEBKIT_DISABLE_MPRIS_PLUGIN", "1");
     }
 
-    start_asset_server(1422);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
