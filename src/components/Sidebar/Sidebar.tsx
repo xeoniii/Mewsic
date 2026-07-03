@@ -1,13 +1,14 @@
 import React from "react";
 import {
   Home, Library, Settings, Music2, Plus,
-  ListMusic, ChevronRight, Loader2, Mic2, Globe, Download, Activity, Puzzle
+  ListMusic, ChevronRight, Loader2, Mic2, Globe, Download, Activity, Puzzle, PanelLeftClose, PanelLeftOpen
 } from "lucide-react";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "../../hooks/useLibrary";
-import type { ViewId } from "../../types";
+import type { ViewId, Track } from "../../types";
 import { useEffect, useState } from "react";
+import { getCoverArtSync } from "../../utils/tauriApi";
 
 interface NavItemProps {
   icon: React.ReactNode;
@@ -18,14 +19,15 @@ interface NavItemProps {
 }
 
 function NavItem({ icon, label, active, onClick }: NavItemProps) {
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   return (
     <button
       onClick={onClick}
-      className={`nav-item w-full justify-center md:justify-start ${active ? "active" : ""}`}
+      className={`nav-item w-full justify-center ${!sidebarCollapsed ? "md:justify-start" : ""} ${active ? "active" : ""}`}
       title={label}
     >
       <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center">{icon}</span>
-      <span className="flex-1 text-left hidden md:block truncate">{label}</span>
+      <span className={`flex-1 text-left hidden truncate ${!sidebarCollapsed ? "md:block" : ""}`}>{label}</span>
     </button>
   );
 }
@@ -37,18 +39,26 @@ export function Sidebar() {
     activeView,
     activePlaylistId,
     isScanning,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    sharonMode,
     setActiveView,
     setActivePlaylist,
     setShowImportPlaylist,
     setShowCreatePlaylist,
+    tracks,
   } = useStore(useShallow((s) => ({
     activeView: s.activeView,
     activePlaylistId: s.activePlaylistId,
     isScanning: s.isScanning,
+    sidebarCollapsed: s.sidebarCollapsed,
+    setSidebarCollapsed: s.setSidebarCollapsed,
+    sharonMode: s.sharonMode,
     setActiveView: s.setActiveView,
     setActivePlaylist: s.setActivePlaylist,
     setShowImportPlaylist: s.setShowImportPlaylist,
     setShowCreatePlaylist: s.setShowCreatePlaylist,
+    tracks: s.tracks,
   })));
 
   const { displayPlaylists } = useDisplayData();
@@ -84,10 +94,12 @@ export function Sidebar() {
   return (
     <>
     <aside
-      className="flex flex-col h-full glass-heavy !border-y-0 !border-l-0 border-r border-border-glass z-50 !shadow-none w-[64px] md:w-[224px] min-w-[64px] md:min-w-[224px] flex-shrink-0 transition-[width] duration-300"
+      className={`flex flex-col h-full glass-heavy !border-y-0 !border-l-0 border-r border-border-glass z-50 !shadow-none w-[64px] min-w-[64px] flex-shrink-0 transition-[width] duration-300 ${!sidebarCollapsed ? "md:w-[224px] md:min-w-[224px]" : ""}`}
     >
-      {/* Logo */}
-      <div className="flex items-center justify-center md:justify-start md:gap-2.5 gap-0 px-2 md:px-4 py-6">
+      {
+  // This is the logo
+}
+      <div className={`flex items-center justify-center gap-0 px-2 py-6 ${!sidebarCollapsed ? "md:justify-start md:gap-2.5 md:px-4" : ""}`}>
         <div
           className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center shadow-accent flex-shrink-0"
           style={{ boxShadow: "0 0 16px var(--accent-glow)" }}
@@ -96,21 +108,36 @@ export function Sidebar() {
           <Music2 size={16} color="#000" strokeWidth={2.5} />
         </div>
         <span
-          className="font-display font-bold text-lg tracking-tight hidden md:block"
+          className={`font-display font-bold text-lg tracking-tight hidden ${!sidebarCollapsed ? "md:block" : ""}`}
           style={{ color: "var(--text-primary)" }}
         >
           Mewsic
         </span>
       </div>
 
-      {/* Divider */}
+      {
+  // Just a divider here
+}
       <div className="mx-4 h-px bg-border-subtle" />
 
-      {/* Main Navigation */}
-      <nav className="flex flex-col gap-0.5 px-2 md:px-3 pt-3">
-        <p className="text-xs font-semibold uppercase tracking-widest text-text-muted px-2 pb-1.5 hidden md:block">
-          Menu
-        </p>
+      {
+  // The main navigation menu is right here
+}
+      <nav className={`flex flex-col gap-0.5 px-2 pt-3 ${!sidebarCollapsed ? "md:px-3" : ""}`}>
+        <div className={`flex flex-col items-center justify-between pb-1.5 gap-2 ${!sidebarCollapsed ? "md:flex-row md:px-2 md:gap-0" : ""}`}>
+          <p className={`text-xs font-semibold uppercase tracking-widest text-text-muted hidden ${!sidebarCollapsed ? "md:block" : ""}`}>
+            Menu
+          </p>
+          <div className={`flex items-center gap-1.5 flex-col ${!sidebarCollapsed ? "md:flex-row" : ""}`}>
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="btn-icon w-6 h-6 p-0 hover:text-accent transition-colors"
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+            </button>
+          </div>
+        </div>
         <NavItem
           icon={<Home size={15} />}
           label="Home"
@@ -155,13 +182,15 @@ export function Sidebar() {
         />
         <NavItem
           icon={<Settings size={15} />}
-          label="Settings"
+          label={sharonMode ? "Shittings" : "Settings"}
           view="settings"
           active={activeView === "settings"}
           onClick={() => setActiveView("settings")}
         />
 
-        {/* Plugin Sidebar Components */}
+        {
+  // This is the plugin sidebar components part
+}
         {pluginSidebarItems.map((item) => (
           <NavItem
             key={item.id || item.viewId}
@@ -180,13 +209,15 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Playlists */}
-      <div className="flex flex-col flex-1 overflow-hidden px-2 md:px-3 pt-4">
-        <div className="flex flex-col md:flex-row items-center justify-between md:px-2 pb-1.5 gap-2 md:gap-0">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-muted hidden md:block">
+      {
+  // This is the playlists part
+}
+      <div className={`flex flex-col flex-1 min-h-0 px-2 pt-4 ${!sidebarCollapsed ? "md:px-3" : ""}`}>
+        <div className={`flex flex-col items-center justify-between pb-1.5 gap-2 ${!sidebarCollapsed ? "md:flex-row md:px-2 md:gap-0" : ""}`}>
+          <p className={`text-xs font-semibold uppercase tracking-widest text-text-muted hidden ${!sidebarCollapsed ? "md:block" : ""}`}>
             Playlists
           </p>
-          <div className="flex items-center gap-1.5 flex-col md:flex-row">
+          <div className={`flex items-center gap-1.5 flex-col ${!sidebarCollapsed ? "md:flex-row" : ""}`}>
             <button
               onClick={handleImportPlaylist}
               className="btn-icon w-6 h-6 p-0 hover:text-accent transition-colors"
@@ -205,51 +236,64 @@ export function Sidebar() {
         </div>
 
 
-        {/* Playlist list */}
-        <div className="flex flex-col gap-0.5 overflow-y-auto flex-1 pr-0 md:pr-0.5">
+        {
+  // This is the playlist list part
+}
+        <div className={`flex flex-col gap-0.5 overflow-y-auto flex-1 -mx-2 px-2 pb-2 ${!sidebarCollapsed ? "md:-mx-3 md:px-3" : ""}`}>
           {displayPlaylists.length === 0 ? (
-            <p className="text-xs text-text-muted px-2 py-2 italic hidden md:block">
+            <p className={`text-xs text-text-muted px-2 py-2 italic hidden ${!sidebarCollapsed ? "md:block" : ""}`}>
               No playlists yet
             </p>
           ) : (
-            displayPlaylists.map((pl) => (
-              <button
-                key={pl.id}
-                onClick={() => setActivePlaylist(pl.id)}
-                className={`nav-item w-full justify-center md:justify-start group ${
-                  activePlaylistId === pl.id ? "active" : ""
-                }`}
-                title={pl.name}
-                data-playlist-id={pl.id}
-                data-context="playlist-item"
-              >
-                <div className="w-5 h-5 rounded-md bg-accent-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  {pl.coverArt ? (
-                    <img src={pl.coverArt} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <ListMusic size={12} className="text-accent" />
-                  )}
-                </div>
-                <span className="flex-1 text-left truncate text-sm hidden md:block">{pl.name}</span>
-                <ChevronRight
-                  size={12}
-                  className="opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0 hidden md:block"
-                />
-              </button>
-            ))
+            displayPlaylists.map((pl) => {
+              const firstTrackId = pl.trackIds[0];
+              const firstTrack = firstTrackId ? tracks.find((t: Track) => t.id === firstTrackId) : null;
+              const fallbackCover = firstTrack ? getCoverArtSync(firstTrack.filePath, 64) : null;
+              const displayCover = pl.coverArt || fallbackCover;
+
+              return (
+                <button
+                  key={pl.id}
+                  onClick={() => setActivePlaylist(pl.id)}
+                  className={`nav-item w-full justify-center group ${!sidebarCollapsed ? "md:justify-start" : ""} ${
+                    activePlaylistId === pl.id ? "active" : ""
+                  }`}
+                  title={pl.name}
+                  data-playlist-id={pl.id}
+                  data-context="playlist-item"
+                >
+                  <div className="w-5 h-5 rounded-md bg-accent-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {displayCover ? (
+                      <img src={displayCover} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <ListMusic size={12} className="text-accent" />
+                    )}
+                  </div>
+                  <span className={`flex-1 text-left truncate text-sm hidden ${!sidebarCollapsed ? "md:block" : ""}`}>{pl.name}</span>
+                  <ChevronRight
+                    size={12}
+                    className={`opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0 hidden ${!sidebarCollapsed ? "md:block" : ""}`}
+                  />
+                </button>
+              );
+            })
           )}
         </div>
       </div>
 
-      {/* Scan indicator */}
+      {
+  // This is the scan indicator part
+}
       {isScanning && (
-        <div className="px-2 md:px-4 py-3 border-t border-border-subtle flex items-center justify-center md:justify-start gap-2">
+        <div className={`px-2 py-3 border-t border-border-subtle flex items-center justify-center gap-2 ${!sidebarCollapsed ? "md:px-4 md:justify-start" : ""}`}>
           <div title="Scanning library…" className="flex items-center justify-center flex-shrink-0">
             <Loader2 size={13} className="animate-spin text-accent" />
           </div>
-          <span className="text-xs text-text-muted hidden md:block truncate">Scanning library…</span>
+          <span className={`text-xs text-text-muted hidden truncate ${!sidebarCollapsed ? "md:block" : ""}`}>Scanning library…</span>
         </div>
       )}
+
+
 
       </aside>
     </>

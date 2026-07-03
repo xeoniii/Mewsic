@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from "react";
 import { X, Save, ListMusic, ImageIcon, Upload } from "lucide-react";
 import { useLibrary } from "../../hooks/useLibrary";
 import type { Playlist } from "../../types";
+import { getCoverArtSync } from "../../utils/tauriApi";
 
 interface EditPlaylistModalProps {
   playlist: Playlist;
@@ -117,6 +118,37 @@ export function EditPlaylistModal({ playlist, onClose }: EditPlaylistModalProps)
                     onChange={handleFileChange}
                 />
                 <p className="text-[10px] text-text-muted uppercase tracking-widest font-medium">Recommended: 512x512 PNG/JPG</p>
+                {playlist.tracks && playlist.tracks.length > 0 && (
+                  <div className="w-full flex flex-col items-center gap-2 mt-2">
+                    <p className="text-[10px] text-text-muted uppercase tracking-widest font-medium">Or choose from playlist tracks:</p>
+                    <div className="flex items-center justify-center gap-2 flex-wrap w-full max-h-[80px] overflow-y-auto overflow-x-hidden scrollbar-thin">
+                      {playlist.tracks.map((track) => (
+                        <button
+                          key={track.id}
+                          className="w-10 h-10 rounded-lg bg-surface-overlay flex-shrink-0 overflow-hidden border border-border-subtle hover:border-accent transition-colors focus:outline-none focus:border-accent"
+                          onClick={() => {
+                            const url = getCoverArtSync(track.filePath, 256);
+                            if (url) {
+                              const img = new Image();
+                              img.crossOrigin = "anonymous";
+                              img.onload = () => {
+                                const canvas = document.createElement("canvas");
+                                canvas.width = 300;
+                                canvas.height = 300;
+                                const ctx = canvas.getContext("2d");
+                                ctx?.drawImage(img, 0, 0, 300, 300);
+                                setCoverArt(canvas.toDataURL("image/jpeg", 0.8));
+                              };
+                              img.src = url;
+                            }
+                          }}
+                        >
+                          <img src={getCoverArtSync(track.filePath, 64) || undefined} alt="Track cover" className="w-full h-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
             </div>
             
             <div>

@@ -12,7 +12,8 @@ export function convertFileSrc(filePath: string): string {
   }
   let path = filePath.replace(/\\/g, "/");
   if (!path.startsWith("/")) path = "/" + path;
-  return `http://127.0.0.1:1422${encodeURI(path)}`;
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  return `http://127.0.0.1:1422${encodedPath}`;
 }
 
 export function getOSName(): "Windows" | "macOS" | "Linux" | "Unknown OS" {
@@ -176,29 +177,13 @@ setInterval(() => {
 }, 10000);
 
 export async function getCoverArt(filePath: string, size = 256, lowEnd = false): Promise<string | null> {
-  const cacheKey = `${filePath}_${size}_${lowEnd}`;
-  const cached = coverCache.get(cacheKey);
+  if (!filePath) return null;
+  return `${convertFileSrc(filePath)}?thumb=1&size=${size}${lowEnd ? "&lowend=1" : ""}`;
+}
 
-  if (cached) {
-    cached.lastUsed = Date.now();
-    return cached.url;
-  }
-
-  try {
-    const result = await invoke<string | null>("get_cover_art", { filePath });
-    if (result) {
-      const url = `${convertFileSrc(result)}?thumb=1&size=${size}${lowEnd ? "&lowend=1" : ""}`;
-      if (coverCache.size >= MAX_COVER_CACHE) {
-        const firstKey = coverCache.keys().next().value;
-        if (firstKey) coverCache.delete(firstKey);
-      }
-      coverCache.set(cacheKey, { url, lastUsed: Date.now() });
-      return url;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+export function getCoverArtSync(filePath: string, size = 256, lowEnd = false): string | null {
+  if (!filePath) return null;
+  return `${convertFileSrc(filePath)}?thumb=1&size=${size}${lowEnd ? "&lowend=1" : ""}`;
 }
 
 export function clearCoverCache() {
@@ -282,4 +267,8 @@ export async function updateMediaPlayback(isPlaying: boolean, progress?: number)
 
 export async function clearMediaControls(): Promise<void> {
   await invoke("clear_media_controls");
+}
+
+export async function forceQuit(): Promise<void> {
+  await invoke("force_quit");
 }

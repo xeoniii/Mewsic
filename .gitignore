@@ -137,3 +137,9 @@ src-tauri/gen/schemas
 src-tauri/target/release/bundle/deb
 src-tauri/target/release/bundle/appimage
 src-tauri/target/release/bundle/rpm
+
+/music/
+/playlists/
+/plugins/
+*.mewsic
+release.sh

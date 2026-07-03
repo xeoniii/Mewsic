@@ -221,12 +221,18 @@ export function PluginsView() {
           </div>
         </div>
 
-        {/* Content Body: Split layout */}
+        {
+  // This is the content body: split layout part
+}
         <div className="flex flex-1 overflow-hidden min-h-0">
           
-          {/* Left Column: Sidebar List */}
+          {
+  // This is the left column: sidebar list part
+}
           <div className="w-[320px] border-r border-border-subtle flex flex-col h-full bg-surface-base/10 flex-shrink-0">
-            {/* Search and Tabs */}
+            {
+  // This is the search and tabs part
+}
             <div className="p-4 border-b border-border-subtle space-y-3">
               <div className="relative">
                 <input
@@ -243,7 +249,9 @@ export function PluginsView() {
                 />
               </div>
 
-              {/* Tabs */}
+              {
+  // This is the tabs part
+}
               <div className="flex bg-surface-raised/50 border border-white/5 p-0.5 rounded-xl">
                 <button
                   onClick={() => {
@@ -278,7 +286,9 @@ export function PluginsView() {
               </div>
             </div>
 
-            {/* List area */}
+            {
+  // This is the list area part
+}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {filteredPlugins.length === 0 ? (
                 <div className="text-center py-8 text-text-muted text-xs">No plugins found</div>
@@ -295,7 +305,9 @@ export function PluginsView() {
                           : "border border-transparent hover:bg-surface-raised/40"
                       }`}
                     >
-                      {/* Icon */}
+                      {
+  // This is the icon part
+}
                       <div
                         className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10 shadow-sm"
                         style={{ backgroundColor: `${p.accentColor}15` }}
@@ -305,7 +317,9 @@ export function PluginsView() {
                           className: isSelected ? "text-accent" : "text-text-secondary",
                         })}
                       </div>
-                      {/* Meta */}
+                      {
+  // This is the meta part
+}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <p className={`text-xs font-bold truncate ${isSelected ? "text-accent" : "text-text-primary"}`}>
@@ -340,11 +354,15 @@ export function PluginsView() {
             </div>
           </div>
 
-          {/* Right Column: Detailed Pane */}
+          {
+  // This is the right column: detailed pane part
+}
           <div className="flex-1 flex flex-col h-full bg-surface-overlay/10">
             {selectedPlugin ? (
               <>
-                {/* Plugin detail header */}
+                {
+  // This is the plugin detail header part
+}
                 <div className="p-6 border-b border-border-subtle flex items-start justify-between gap-4 flex-shrink-0">
                   <div className="flex items-center gap-4">
                     <div
@@ -402,7 +420,9 @@ export function PluginsView() {
                     </div>
                   </div>
 
-                  {/* Actions (Blockbench style buttons) */}
+                  {
+  // This is the actions (blockbench style buttons) part
+}
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <button
                       disabled={selectedPlugin.isDisabled}
@@ -486,7 +506,9 @@ export function PluginsView() {
                   </div>
                 </div>
 
-                {/* Sub Tab selectors */}
+                {
+  // This is the sub tab selectors part
+}
                 <div className="flex gap-4 px-6 pt-3 border-b border-border-subtle flex-shrink-0">
                   {([
                     { id: "about", label: "About", icon: <Info size={11} /> },
@@ -507,7 +529,9 @@ export function PluginsView() {
                   ))}
                 </div>
 
-                {/* Inner Tab Panels */}
+                {
+  // This is the inner tab panels part
+}
                 <div className="flex-1 overflow-y-auto p-6 space-y-4">
                   {selectedDetailTab === "about" && (
                     <div className="space-y-4 text-xs">
@@ -594,7 +618,9 @@ export function PluginsView() {
           </div>
         </div>
 
-        {/* Footer */}
+        {
+  // This is the footer section
+}
         <div className="px-7 py-4 border-t border-border-subtle flex items-center justify-between flex-shrink-0">
           <p className="text-[10px] text-text-muted italic">
             Built-in plugin changes require a reload to take effect.

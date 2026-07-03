@@ -36,6 +36,7 @@
     },
     "shell:default",
     "notification:default",
-    "updater:default"
+    "updater:default",
+    "process:default"
   ]
 }

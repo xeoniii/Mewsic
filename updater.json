@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0-2",
-  "notes": "Mewsic v1.0.0-2: Release.",
+  "version": "1.0.0-3",
+  "notes": "Mewsic v1.0.0-3: Release.",
   "pub_date": "2026-06-01T16:30:00Z",
   "platforms": {
     "linux-x86_64": {
@@ -9,7 +9,7 @@
     },
     "windows-x86_64": {
       "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup.msi"
+      "url": "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup.msi.zip"
     },
     "darwin-aarch64": {
       "signature": "PLACEHOLDER_SIGNATURE",

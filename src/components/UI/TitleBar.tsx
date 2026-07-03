@@ -52,14 +52,18 @@ export function TitleBar() {
 
   return (
     <div id="custom-titlebar" className="h-8 relative flex items-center justify-between bg-surface-base/80 backdrop-blur-md border-b border-border-subtle select-none z-[1000]">
-      {/* Separate Drag Region - Background */}
+      {
+  // This is the separate drag region - background part
+}
       <div 
         onMouseDown={handleDrag}
         data-tauri-drag-region 
         className="absolute inset-0 cursor-default" 
       />
 
-      {/* Content - Above Drag Region */}
+      {
+  // This is the content - above drag region part
+}
       <div className="relative z-10 flex items-center px-3 gap-2 pointer-events-none">
         <div className="w-3.5 h-3.5 rounded-full bg-accent/20 flex items-center justify-center">
           <div className="w-1.5 h-1.5 rounded-full bg-accent" />

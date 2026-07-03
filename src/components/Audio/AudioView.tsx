@@ -294,7 +294,9 @@ export function AudioView() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-surface-base text-text-primary overflow-hidden page">
-      {/* Header */}
+      {
+  // This is the header section
+}
       <header className="p-4 md:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border-subtle bg-surface-base/50 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-accent-muted flex items-center justify-center text-accent flex-shrink-0 border border-white/5">
@@ -313,11 +315,15 @@ export function AudioView() {
         </button>
       </header>
 
-      {/* Scrollable Content */}
+      {
+  // This is the scrollable content part
+}
       <div ref={containerRef} className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="max-w-[1600px] mx-auto flex flex-col gap-6 animate-fade-in">
 
-          {/* Top Row */}
+          {
+  // This is the top row part
+}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-slide-up" style={{ animationDelay: '0.1s' }}>
             <MasterVolumeCard />
             <SpatialPannerCard />
@@ -326,7 +332,9 @@ export function AudioView() {
 
           <PresetsRow />
 
-          {/* Bottom Row */}
+          {
+  // This is the bottom row part
+}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 animate-slide-up" style={{ animationDelay: '0.2s' }}>
             <ReverbCard />
             <BassCard />

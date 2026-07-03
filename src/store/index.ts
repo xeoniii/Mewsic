@@ -1,9 +1,6 @@
-/**
- * store/index.ts
- * --------------
- * Single Zustand store for the entire application.
- * Separated into three slices: player, library, ui.
- */
+// store/index.ts
+// single zustand store for the entire application.
+// separated into three slices: player, library, ui.
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -134,8 +131,12 @@ interface UISlice {
   smoothScrollEnabled: boolean;
   minecraftIntegrationEnabled: boolean;
   mewsifyIntegrationEnabled: boolean;
+  sharonMode: boolean;
+  sidebarCollapsed: boolean;
 
   setActiveView: (v: ViewId, skipHistory?: boolean) => void;
+  setSharonMode: (v: boolean) => void;
+  setSidebarCollapsed: (v: boolean) => void;
   setPlaylistScrollOffset: (playlistId: string, offset: number) => void;
   setActivePlaylist: (id: string | null, skipHistory?: boolean) => void;
   setSearchQuery: (q: string) => void;
@@ -256,18 +257,34 @@ export const useStore = create<Store>()(
         const { queue, queueIndex, repeatMode } = get();
         if (!queue.length) return;
 
-        let nextIndex: number;
         if (queueIndex < queue.length - 1) {
-          nextIndex = queueIndex + 1;
+          const nextIndex = queueIndex + 1;
+          set({
+            queueIndex: nextIndex,
+            currentTrack: queue[nextIndex],
+            currentTime: 0,
+            isPlaying: true,
+          });
         } else {
-          nextIndex = 0;
+          if (repeatMode === "all") {
+            set({
+              queueIndex: 0,
+              currentTrack: queue[0],
+              currentTime: 0,
+              isPlaying: true,
+            });
+          } else {
+            set({ 
+              queue: [],
+              originalQueue: [],
+              queueIndex: 0,
+              currentTrack: null,
+              currentTime: 0,
+              isPlaying: false,
+              queueSourceId: null
+            });
+          }
         }
-        set({
-          queueIndex: nextIndex,
-          currentTrack: queue[nextIndex],
-          currentTime: 0,
-          isPlaying: true,
-        });
       },
 
       playPrev: () => {
@@ -568,6 +585,8 @@ export const useStore = create<Store>()(
       smoothScrollEnabled: true,
       minecraftIntegrationEnabled: true,
       mewsifyIntegrationEnabled: false,
+      sharonMode: false,
+      sidebarCollapsed: false,
 
       setActiveView: (v, skipHistory = false) => {
         const { history, historyIndex } = get();
@@ -578,6 +597,9 @@ export const useStore = create<Store>()(
         }
         set({ activeView: v, activePlaylistId: null, searchQuery: "" });
       },
+
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+      setSharonMode: (v) => set({ sharonMode: v }),
 
       setActivePlaylist: (id, skipHistory = false) => {
         const { history, historyIndex } = get();

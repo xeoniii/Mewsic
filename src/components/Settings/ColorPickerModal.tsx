@@ -151,7 +151,9 @@ export function ColorPickerModal({ onClose }: { onClose: () => void }) {
         </div>
         
         <div className="p-6 flex flex-col items-center gap-6">
-          {/* Wheel */}
+          {
+  // This is the wheel part
+}
           <div 
             ref={wheelRef}
             className="w-[200px] h-[200px] rounded-full relative cursor-crosshair shadow-lg"
@@ -167,13 +169,19 @@ export function ColorPickerModal({ onClose }: { onClose: () => void }) {
               handleMove(e);
             }}
           >
-            {/* White overlay for saturation (center is white, edge is full color) */}
+            {
+  // This is the white overlay for saturation (center is white, edge is full color) part
+}
             <div className="absolute inset-0 rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle closest-side, white, transparent)' }} />
             
-            {/* Overlay for lightness (controlled by slider) */}
+            {
+  // This is the overlay for lightness (controlled by slider) part
+}
             <div className="absolute inset-0 rounded-full pointer-events-none" style={{ background: overlayColor, opacity: overlayOpacity }} />
 
-            {/* Thumb */}
+            {
+  // This is the thumb part
+}
             <div 
               className="absolute w-4 h-4 rounded-full border-2 border-white shadow-md pointer-events-none transform -translate-x-1/2 -translate-y-1/2 transition-none"
               style={{
@@ -184,7 +192,9 @@ export function ColorPickerModal({ onClose }: { onClose: () => void }) {
             />
           </div>
 
-          {/* Lightness Slider */}
+          {
+  // This is the lightness slider part
+}
           <div className="w-full space-y-2">
             <div className="flex justify-between text-xs text-text-muted font-bold tracking-widest uppercase">
               <span>Darker</span>
@@ -203,7 +213,9 @@ export function ColorPickerModal({ onClose }: { onClose: () => void }) {
             />
           </div>
 
-          {/* Hex display */}
+          {
+  // This is the hex display part
+}
           <div className="w-full flex items-center justify-between p-3 rounded-xl bg-surface-overlay border border-border-subtle">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full shadow-inner border border-white/20" style={{ backgroundColor: hexColor }} />
@@ -212,7 +224,9 @@ export function ColorPickerModal({ onClose }: { onClose: () => void }) {
             <Pipette size={16} className="text-text-muted" />
           </div>
 
-          {/* History */}
+          {
+  // This is the history part
+}
           {customColorHistory.length > 0 && (
             <div className="w-full flex items-center justify-between">
               <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Recent Colors</span>

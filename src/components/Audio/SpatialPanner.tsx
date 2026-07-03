@@ -70,21 +70,29 @@ export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: Spatial
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        {/* Background grid/rings */}
+        {
+  // This is the background grid/rings part
+}
         <div className="absolute inset-0 rounded-full border border-white/5 scale-50 pointer-events-none" />
         <div className="absolute inset-0 rounded-full border border-white/5 scale-75 pointer-events-none" />
         <div className="absolute w-full h-px bg-white/5 pointer-events-none" />
         <div className="absolute h-full w-px bg-white/5 pointer-events-none" />
         
-        {/* Center marker */}
+        {
+  // This is the center marker part
+}
         <Crosshair size={16} className="text-white/10 absolute pointer-events-none" />
 
-        {/* The Puck Wrapper */}
+        {
+  // This is the the puck wrapper part
+}
         <div 
           className={`absolute inset-0 pointer-events-none ${autoPan ? 'animate-spin force-anim' : ''}`}
           style={autoPan ? { animationDuration: '7.85s', animationTimingFunction: 'linear' } : undefined}
         >
-          {/* The Puck */}
+          {
+  // This is the the puck part
+}
           <div 
             className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-accent shadow-[0_0_15px_rgba(var(--color-accent),0.5)] border-2 border-white transition-all duration-300"
             style={
@@ -93,13 +101,17 @@ export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: Spatial
                 : { left: leftPos, top: topPos, transform: isDragging ? 'scale(1.2)' : 'scale(1)' }
             }
           >
-            {/* Inner glow */}
+            {
+  // This is the inner glow part
+}
             <div className="absolute inset-0 rounded-full bg-white/50 blur-sm" />
           </div>
         </div>
       </div>
       
-      {/* Controls */}
+      {
+  // This is the controls part
+}
       <div className="flex items-center justify-between w-full mt-6 px-4">
         <div className="flex gap-4">
           <div className="text-center">

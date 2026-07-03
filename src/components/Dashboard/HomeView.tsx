@@ -33,7 +33,7 @@ function StatCard({
 import { useDisplayData } from "../../hooks/useDisplayData";
 
 export function HomeView() {
-  const { isScanning, setQueue, setIsPlaying, shuffleEnabled, toggleShuffle, homeViewMode, setHomeViewMode } =
+  const { isScanning, setQueue, setIsPlaying, shuffleEnabled, toggleShuffle, homeViewMode, setHomeViewMode, sharonMode } =
     useStore(useShallow((s) => ({
       isScanning: s.isScanning,
       setQueue: s.setQueue,
@@ -42,6 +42,7 @@ export function HomeView() {
       toggleShuffle: s.toggleShuffle,
       homeViewMode: s.homeViewMode,
       setHomeViewMode: s.setHomeViewMode,
+      sharonMode: s.sharonMode,
     })));
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -122,11 +123,13 @@ export function HomeView() {
   return (
     <div ref={containerRef} className="flex flex-col h-full overflow-y-auto page">
       <div className="flex flex-col gap-8 p-8 pb-4">
-        {/* ── Dashboard Header ─────────────────────────────────────────────────── */}
+        {
+  // This is the dashboard header part
+}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
           <div>
             <h2 className="font-display font-black text-3xl md:text-4xl tracking-tight text-text-primary">
-              Welcome back!
+              {sharonMode ? "Welcome to Shitville!" : "Welcome back!"}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -147,7 +150,9 @@ export function HomeView() {
           </div>
         </div>
 
-        {/* ── Stats Row ──────────────────────────────────────────────────────── */}
+        {
+  // This is the stats row part
+}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
           <StatCard icon={<Music2 size={18} />} label="Total Tracks" value={demoTrackCount} />
           <StatCard icon={<Disc3 size={18} />} label="Unique Artists" value={uniqueArtists} />
@@ -160,7 +165,9 @@ export function HomeView() {
         </div>
       </div>
 
-      {/* ── Recently Added ─────────────────────────────────────────────────────── */}
+      {
+  // This is the recently added part
+}
       <div className="px-8 pb-8">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -170,7 +177,9 @@ export function HomeView() {
             <p className="text-xs text-text-muted mt-0.5">Your latest discoveries</p>
           </div>
           <div className="flex items-center gap-4">
-            {/* View toggle */}
+            {
+  // This is the view toggle part
+}
             <div className="flex items-center gap-1 bg-surface-raised border border-border-subtle rounded-xl p-1 hidden sm:flex">
               <button
                 onClick={() => setHomeViewMode("list")}

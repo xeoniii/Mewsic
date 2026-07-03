@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "./hooks/useLibrary";
 import { useMediaControls } from "./hooks/useMediaControls";
 import { usePlugins } from "./hooks/usePlugins";
-import { getAppPaths, setTrayEnabled, toggleFullscreen } from "./utils/tauriApi";
+import { getAppPaths, setTrayEnabled, toggleFullscreen, forceQuit } from "./utils/tauriApi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -18,6 +18,7 @@ import { PlaylistView } from "./components/Library/PlaylistView";
 import { LyricsView } from "./components/Player/LyricsView";
 import HarbourView from "./components/Harbour/HarbourView";
 import { AudioView } from "./components/Audio/AudioView";
+import { QueueView } from "./components/Player/QueueView";
 import { SettingsView } from "./components/Settings/SettingsView";
 import { PluginsView } from "./components/Plugins/PluginsView";
 import { ToastContainer } from "./components/UI/Toast";
@@ -48,6 +49,7 @@ function ViewRouter() {
     case "library":  return <LibraryView />;
     case "playlist": return <PlaylistView />;
     case "player":   return <LyricsView />;
+    case "queue":    return <QueueView />;
     case "harbour":  return <HarbourView />;
     case "audio":    return <AudioView />;
     case "plugins":  return <PluginsView />;
@@ -376,10 +378,10 @@ export default function App() {
         if (e.repeat) return;
         e.preventDefault();
         setShowCyberdeck(!showCyberdeck);
-      } else if ((e.ctrlKey || e.metaKey) && e.code === "KeyQ") {
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyQ") {
         if (e.repeat) return;
         e.preventDefault();
-        exit(0);
+        forceQuit();
       } else if (e.ctrlKey && e.shiftKey && e.code === "KeyR") {
         if (e.repeat) return;
         e.preventDefault();
@@ -440,7 +442,9 @@ export default function App() {
     >
       <DevOverlay />
       <TitleBar />
-      {/* Main workspace */}
+      {
+  // This is the main workspace part
+}
       <div className="flex flex-1 min-h-0">
         <Sidebar />
         <main className="flex-1 min-w-0 overflow-hidden relative">
@@ -448,16 +452,24 @@ export default function App() {
         </main>
       </div>
 
-      {/* Persistent player bar */}
+      {
+  // This is the persistent player bar part
+}
       <PlayerBar />
 
-      {/* Global Notifications */}
+      {
+  // This is the global notifications part
+}
       <ToastContainer />
 
-      {/* Custom Context Menu */}
+      {
+  // This is the custom context menu part
+}
       <ContextMenu />
 
-      {/* Global Modals */}
+      {
+  // This is the global modals part
+}
       {showAbout && <AboutModal />}
 
       {editTrack && (
@@ -511,7 +523,9 @@ export default function App() {
         />
       )}
 
-      {/* Custom Global Tooltip overlay */}
+      {
+  // This is the custom global tooltip overlay part
+}
       <GlobalTooltip />
     </div>
   );

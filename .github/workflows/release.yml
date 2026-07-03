@@ -1,8 +1,5 @@
 name: Release
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -53,14 +50,21 @@ jobs:
         shell: bash
         run: |
           MSI=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi' | head -n1)
+          ZIP=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi.zip' | head -n1)
+          SIG=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi.zip.sig' | head -n1)
           echo "Found MSI: $MSI"
           cp "$MSI" "Mewsic-Setup.msi"
+          if [ -n "$ZIP" ]; then cp "$ZIP" "Mewsic-Setup.msi.zip"; fi
+          if [ -n "$SIG" ]; then cp "$SIG" "Mewsic-Setup.msi.zip.sig"; fi
 
-      - name: Upload static MSI to release
+      - name: Upload static artifacts to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi" --repo "${{ github.repository }}" --clobber
+        run: |
+          gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi" --repo "${{ github.repository }}" --clobber
+          if [ -f "Mewsic-Setup.msi.zip" ]; then gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi.zip" --repo "${{ github.repository }}" --clobber; fi
+          if [ -f "Mewsic-Setup.msi.zip.sig" ]; then gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi.zip.sig" --repo "${{ github.repository }}" --clobber; fi
 
   # ─── macOS (ARM64) ─────────────────────────────────────────────────────────
   release-macos-arm:
@@ -248,11 +252,9 @@ jobs:
 
   # ─── Arch Linux (pkg.tar.zst) ──────────────────────────────────────────────
   release-arch:
-    needs: release-linux
-    if: ${{ !cancelled() }}
     permissions:
       contents: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: archlinux:latest
       options: --privileged

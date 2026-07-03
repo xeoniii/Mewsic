@@ -74,7 +74,9 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
         </div>
 
         <div className="p-6 flex flex-col gap-6">
-          {/* Instructions */}
+          {
+  // This is the instructions part
+}
           <div className="flex gap-4 p-4 rounded-xl bg-accent/5 border border-accent/10">
             <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent flex-shrink-0">
               <Info size={16} />
@@ -88,7 +90,9 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
             </div>
           </div>
 
-          {/* Code View */}
+          {
+  // This is the code view part
+}
           <div className="relative group">
             <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
                <button 

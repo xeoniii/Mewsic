@@ -254,7 +254,11 @@ export function useAudioPlayer() {
       if (!currentTrack) {
         lastTrackIdRef.current = null;
         currentCoverUrlRef.current = undefined;
-        clearDiscordRpc().catch(() => {});
+        if (state.discordEnabled) {
+          updateDiscordRpc("Idle", "Nothing playing", false, 0, 0, "Mewsic").catch(() => {});
+        } else {
+          clearDiscordRpc().catch(() => {});
+        }
         return;
       }
 

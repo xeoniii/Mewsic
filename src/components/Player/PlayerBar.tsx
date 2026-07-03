@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import {
   Play, Pause, SkipBack, SkipForward, Repeat, Repeat1,
   Shuffle, Volume2, VolumeX, Volume1,
-  RotateCcw, RotateCw,
+  RotateCcw, RotateCw, ListMusic
 } from "lucide-react";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
@@ -11,14 +11,14 @@ import { CoverArt } from "../Dashboard/MusicCard";
 import { formatDuration, truncate } from "../../utils/helpers";
 import { ThemedSlider } from "../UI/ThemedSlider";
 
-/** Filled volume icon based on level */
+// This is the * filled volume icon based on level part
 function VolumeIcon({ volume }: { volume: number }) {
   if (volume === 0) return <VolumeX size={15} />;
   if (volume < 0.4) return <Volume1 size={15} />;
   return <Volume2 size={15} />;
 }
 
-/** Repeat icon based on mode */
+// This is the * repeat icon based on mode part
 function RepeatIcon({ mode }: { mode: "off" | "one" | "all" }) {
   if (mode === "one") return <Repeat1 size={15} />;
   return <Repeat size={15} />;
@@ -41,6 +41,8 @@ export function PlayerBar() {
     skipForward,
     skipBackward,
     toggleMute,
+    activeView,
+    setActiveView,
   } = useStore(useShallow((s) => ({
     currentTrack: s.currentTrack,
     isPlaying: s.isPlaying,
@@ -57,6 +59,8 @@ export function PlayerBar() {
     skipForward: s.skipForward,
     skipBackward: s.skipBackward,
     toggleMute: s.toggleMute,
+    activeView: s.activeView,
+    setActiveView: s.setActiveView,
   })));
 
   const { togglePlay, seek, setSeeking } = useAudioPlayer();
@@ -79,7 +83,9 @@ export function PlayerBar() {
       className="glass-heavy border-t border-border-glass flex items-center gap-4 px-4 flex-shrink-0"
       style={{ height: "var(--player-height)" }}
     >
-      {/* ── Track Info (Left) ──────────────────────────────────────────────────────── */}
+      {
+  // This is the track info (left) part
+}
       <div className="flex items-center gap-3 min-w-0 flex-shrink-0" style={{ width: 225 }}>
         <div
           className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 ${
@@ -112,11 +118,17 @@ export function PlayerBar() {
         </div>
       </div>
 
-      {/* ── Transport Controls (Center) ──────────────────────────────────────────────── */}
+      {
+  // This is the transport controls (center) part
+}
       <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
-        {/* Controls row */}
+        {
+  // This is the controls row part
+}
         <div className="flex items-center gap-1">
-          {/* Shuffle */}
+          {
+  // This is the shuffle part
+}
           <button
             onClick={toggleShuffle}
             className={`btn-icon ${shuffleEnabled ? "active" : ""}`}
@@ -125,7 +137,9 @@ export function PlayerBar() {
             <Shuffle size={15} />
           </button>
 
-          {/* Prev */}
+          {
+  // This is the prev part
+}
           <button
             onClick={playPrev}
             disabled={!currentTrack}
@@ -134,7 +148,9 @@ export function PlayerBar() {
             <SkipBack size={18} />
           </button>
 
-          {/* Skip Backward 5s */}
+          {
+  // This is the skip backward 5s part
+}
           <button
             onClick={skipBackward}
             disabled={!currentTrack}
@@ -144,7 +160,9 @@ export function PlayerBar() {
             <RotateCcw size={16} />
           </button>
 
-          {/* Play / Pause — primary button */}
+          {
+  // This is the play / pause — primary button part
+}
           <button
             onClick={togglePlay}
             disabled={!currentTrack}
@@ -158,7 +176,9 @@ export function PlayerBar() {
             )}
           </button>
 
-          {/* Skip Forward 5s */}
+          {
+  // This is the skip forward 5s part
+}
           <button
             onClick={skipForward}
             disabled={!currentTrack}
@@ -168,7 +188,9 @@ export function PlayerBar() {
             <RotateCw size={16} />
           </button>
 
-          {/* Next */}
+          {
+  // This is the next part
+}
           <button
             onClick={playNext}
             disabled={!currentTrack}
@@ -177,7 +199,9 @@ export function PlayerBar() {
             <SkipForward size={18} />
           </button>
 
-          {/* Repeat */}
+          {
+  // This is the repeat part
+}
           <button
             onClick={cycleRepeat}
             className={`btn-icon ${repeatMode !== "off" ? "active" : ""}`}
@@ -187,15 +211,32 @@ export function PlayerBar() {
           </button>
         </div>
 
-        {/* Seek bar row */}
+        {
+  // This is the seek bar row part
+}
         <SeekBarRow duration={duration} seek={seek} setSeeking={setSeeking} />
       </div>
 
-      {/* ── Volume (Right) ────────────────────────────────────────────────────────── */}
+      {
+  // This is the volume (right) part
+}
       <div
         className="flex items-center gap-2 flex-shrink-0 mr-4"
-        style={{ width: 160 }}
+        style={{ width: 190 }}
       >
+        <button
+          onClick={() => {
+            if (activeView === "queue") {
+              useStore.getState().goBack();
+            } else {
+              setActiveView("queue");
+            }
+          }}
+          className={`btn-icon flex-shrink-0 ${activeView === "queue" ? "active" : ""}`}
+          title="Play Queue"
+        >
+          <ListMusic size={15} />
+        </button>
         <button
           onClick={toggleMute}
           className="btn-icon flex-shrink-0"

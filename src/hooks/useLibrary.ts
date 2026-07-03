@@ -1,9 +1,6 @@
-/**
- * useLibrary.ts
- * -------------
- * Orchestrates the initial music scan and playlist loading on startup.
- * Exposes helpers for rescanning and changing directories.
- */
+// uselibrary.ts
+// orchestrates the initial music scan and playlist loading on startup.
+// exposes helpers for rescanning and changing directories.
 
 import { useCallback } from "react";
 import { useStore } from "../store";
@@ -143,6 +140,11 @@ export function useLibrary() {
     async (name: string): Promise<Playlist | null> => {
       if (!playlistsDir) return null;
       try {
+        if (playlists.some((p) => p.name === name)) {
+          addNotification("A playlist with this name already exists", "error");
+          return null;
+        }
+
         const pl = await createPlaylist(playlistsDir, name);
         addPlaylist(pl);
         return pl;
@@ -151,7 +153,7 @@ export function useLibrary() {
         return null;
       }
     },
-    [playlistsDir, addPlaylist]
+    [playlistsDir, addPlaylist, playlists, addNotification]
   );
 
   const updatePlaylistData = useCallback(async (pl: Playlist) => {

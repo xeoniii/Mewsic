@@ -38,7 +38,9 @@ export function CreatePlaylistModal({ onClose }: CreatePlaylistModalProps) {
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 animate-fade-in backdrop-blur-md bg-black/60">
       <div className="w-full max-w-md bg-surface-base border border-border-glass shadow-2xl rounded-3xl overflow-hidden animate-scale-in flex flex-col">
-        {/* Header */}
+        {
+  // This is the header section
+}
         <div className="p-6 border-b border-border-subtle flex items-center justify-between bg-surface-raised/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
@@ -72,7 +74,7 @@ export function CreatePlaylistModal({ onClose }: CreatePlaylistModalProps) {
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-accent-muted/5 border border-accent/10 flex items-start gap-3">
+          <div className="p-4 rounded-2xl bg-accent-muted/5 border border-white/5 flex items-start gap-3">
             <CheckCircle2 size={16} className="text-accent mt-0.5" />
             <p className="text-[11px] text-text-secondary leading-relaxed">
               New playlists are saved as .json files in your library folder and can be shared with friends!

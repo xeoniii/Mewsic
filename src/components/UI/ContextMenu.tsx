@@ -268,7 +268,9 @@ export function ContextMenu() {
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex flex-col">
-        {/* Playback Controls Grid */}
+        {
+  // This is the playback controls grid part
+}
         <div className="grid grid-cols-4 gap-1 mb-1 px-1">
           <button
             onClick={playPrev}

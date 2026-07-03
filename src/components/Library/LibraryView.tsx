@@ -297,9 +297,13 @@ export function LibraryView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
+      {
+  // This is the toolbar part
+}
       <div className="flex flex-col md:flex-row flex-wrap md:items-center gap-4 w-full px-4 md:px-8 py-4 md:py-6 flex-shrink-0">
-        {/* Search */}
+        {
+  // This is the search part
+}
         <div className="relative group flex-grow min-w-[200px]">
           <Search
             size={14}
@@ -317,15 +321,21 @@ export function LibraryView() {
         <div className="hidden lg:block h-6 w-px bg-border-subtle mx-2 flex-shrink-0" />
 
         <div className="flex flex-wrap items-center justify-between md:justify-end gap-4 w-full md:w-auto flex-shrink-0">
-          {/* Sort controls */}
+          {
+  // This is the sort controls part
+}
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-text-muted mr-1">Sort by</span>
             <SortDropdown sortKey={sortKey} sortAsc={sortAsc} toggleSort={toggleSort} />
           </div>
 
-          {/* View toggle & Actions */}
+          {
+  // This is the view toggle & actions part
+}
           <div className="flex items-center gap-2 ml-auto md:ml-0">
-            {/* View toggle */}
+            {
+  // This is the view toggle part
+}
             <div className="flex items-center gap-1 bg-surface-raised border border-border-subtle rounded-xl p-1">
               <button
                 onClick={() => setLibraryViewMode("list")}
@@ -343,7 +353,9 @@ export function LibraryView() {
               </button>
             </div>
 
-            {/* Rescan */}
+            {
+  // This is the rescan part
+}
             <button
               onClick={() => musicDir && rescanDirectory()}
               disabled={isScanning}
@@ -353,7 +365,9 @@ export function LibraryView() {
               <RefreshCw size={15} className={isScanning ? "animate-spin text-accent" : ""} />
             </button>
 
-            {/* Import */}
+            {
+  // This is the import part
+}
             <button
               onClick={handleImport}
               className="btn-accent h-10 px-4 flex-shrink-0"
@@ -366,14 +380,18 @@ export function LibraryView() {
         </div>
       </div>
 
-      {/* Track count */}
+      {
+  // This is the track count part
+}
       <div className="px-6 py-2 text-xs text-text-muted flex-shrink-0">
         {filtered.length === displayTracks.length
           ? `${demoTrackCount} tracks`
           : `${filtered.length} of ${demoTrackCount} tracks`}
       </div>
 
-      {/* Content */}
+      {
+  // Here is the main content
+}
       <div ref={contentRef} className="flex-1 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="empty-state pt-16">

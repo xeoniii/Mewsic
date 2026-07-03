@@ -44,7 +44,9 @@ export function AboutModal() {
         className="w-full max-w-2xl glass rounded-[2rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-500"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {
+  // This is the header section
+}
         <div className="flex items-center justify-between px-8 py-6 border-b border-border-subtle">
           <h2 className="font-display text-xl font-semibold text-text-primary">About Mewsic</h2>
           <button onClick={() => setShowAbout(false)} className="btn-icon p-2 hover:bg-surface-overlay rounded-xl transition-all">
@@ -52,7 +54,9 @@ export function AboutModal() {
           </button>
         </div>
 
-        {/* Content */}
+        {
+  // Here is the main content
+}
         <div className="p-8">
           <div className="flex flex-col p-8 rounded-2xl bg-surface-overlay border border-border-subtle gap-8 w-full text-left">
             <div className="flex justify-between items-center gap-4">

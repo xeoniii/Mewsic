@@ -163,6 +163,9 @@ impl DiscordState {
                         }
 
                         if let Some(c) = client.as_mut() {
+                            let mut activity = activity::Activity::new();
+                            let large_image = cover_url.unwrap_or_else(|| "cover".to_string());
+
                             let large_text = if is_playing { 
                                 playlist_name.clone() 
                             } else { 
@@ -178,37 +181,48 @@ impl DiscordState {
                                 ("pause".to_string(), format!("Paused at {:02}:{:02}", mins, secs))
                             };
 
-                            let large_image = cover_url.unwrap_or_else(|| "cover".to_string());
-                            let mut activity = activity::Activity::new()
-                                .details(&details)
-                                .state(&state_str)
-                                .activity_type(activity::ActivityType::Listening)
-                                .assets(
-                                    activity::Assets::new()
-                                        .large_image(&large_image)
-                                        .small_image(&small_image)
-                                        .large_text(&large_text)
-                                        .small_text(&small_text),
-                                )
-                                .buttons(vec![activity::Button::new(
-                                    "Download Mewsic",
-                                    "https://xeoniii.github.io/Mewsic",
-                                )]);
-
-                            let (start_time, bar_duration) = if is_playing {
-                                (now as i64 - current_time as i64, if duration > 0.0 { duration as i64 } else { 0 })
+                            if title == "Idle" {
+                                activity = activity
+                                    .details("Idle")
+                                    .state("Nothing playing")
+                                    .assets(
+                                        activity::Assets::new()
+                                            .large_image(&large_image)
+                                            .large_text("Mewsic")
+                                    )
+                                    .buttons(vec![activity::Button::new(
+                                        "Download Mewsic",
+                                        "https://xeoniii.github.io/Mewsic",
+                                    )]);
                             } else {
-                                // When paused, start a fresh 1-hour counter from "now" 
-                                // to show how long we've been paused.
-                                (now as i64, 3600)
-                            };
+                                activity = activity
+                                    .details(&details)
+                                    .state(&state_str)
+                                    .activity_type(activity::ActivityType::Listening)
+                                    .assets(
+                                        activity::Assets::new()
+                                            .large_image(&large_image)
+                                            .small_image(&small_image)
+                                            .large_text(&large_text)
+                                            .small_text(&small_text),
+                                    )
+                                    .buttons(vec![activity::Button::new(
+                                        "Download Mewsic",
+                                        "https://xeoniii.github.io/Mewsic",
+                                    )]);
 
-                            let mut timestamps = activity::Timestamps::new().start(start_time);
-                            if bar_duration > 0 {
-                                timestamps = timestamps.end(start_time + bar_duration);
+                                let (start_time, bar_duration) = if is_playing {
+                                    (now as i64 - current_time as i64, if duration > 0.0 { duration as i64 } else { 0 })
+                                } else {
+                                    (now as i64, 3600)
+                                };
+
+                                let mut timestamps = activity::Timestamps::new().start(start_time);
+                                if bar_duration > 0 {
+                                    timestamps = timestamps.end(start_time + bar_duration);
+                                }
+                                activity = activity.timestamps(timestamps);
                             }
-                            
-                            activity = activity.timestamps(timestamps);
 
                             if c.set_activity(activity).is_err() {
                                 client = None;
@@ -816,6 +830,10 @@ async fn create_playlist(playlists_dir: String, name: String) -> Result<Playlist
 
     let file_path = PathBuf::from(&playlists_dir).join(format!("{}.json", safe_name));
 
+    if file_path.exists() {
+        return Err("A playlist with this name already exists".to_string());
+    }
+
     let playlist = Playlist {
         id,
         name,
@@ -867,13 +885,10 @@ async fn rename_playlist(mut playlist: Playlist, new_name: String) -> Result<Pla
         .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
         .collect();
     
-    let mut new_path = parent.join(format!("{}.json", safe_name));
+    let new_path = parent.join(format!("{}.json", safe_name));
     
-    // Handle collisions
-    let mut counter = 1;
-    while new_path.exists() && new_path != old_path {
-        new_path = parent.join(format!("{} ({}).json", safe_name, counter));
-        counter += 1;
+    if new_path.exists() && new_path != old_path {
+        return Err("A playlist with this name already exists".to_string());
     }
 
     // Update internal data
@@ -2091,7 +2106,7 @@ fn handle_request(request: tiny_http::Request) {
         .unwrap_or(256);
     
     let is_lowend = query.contains("lowend=1");
-    let requested_size = if is_lowend { (requested_size as f32 * 0.5) as u32 } else { requested_size };
+    let requested_size = if is_lowend && requested_size >= 100 { (requested_size as f32 * 0.5) as u32 } else { requested_size };
 
     let decoded_path = percent_decode_str(path_query)
         .decode_utf8_lossy()
@@ -2153,7 +2168,7 @@ fn handle_request(request: tiny_http::Request) {
                         if let Ok(img) = reader.decode() {
                             let resized = img.thumbnail(requested_size, requested_size);
                             let mut buffer = Cursor::new(Vec::new());
-                            let quality = if is_lowend { 35 } else { 60 };
+                            let quality = if is_lowend { 50 } else { 65 };
                             let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, quality);
                             if encoder.encode_image(&resized.to_rgb8()).is_ok()
                             {
@@ -2849,6 +2864,11 @@ async fn import_spotify_playlist(
     }))
 }
 
+#[tauri::command]
+fn force_quit(app_handle: tauri::AppHandle) {
+    app_handle.exit(0);
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
     {
@@ -3036,6 +3056,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            force_quit,
             get_app_paths,
             get_downloads_dir,
             scan_music_directory,

@@ -104,7 +104,9 @@ export function ImportPlaylistModal({ onClose }: ImportPlaylistModalProps) {
     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 animate-fade-in backdrop-blur-md bg-black/60">
       <div className="w-full max-w-2xl bg-surface-base border border-border-glass shadow-2xl rounded-3xl overflow-hidden animate-scale-in flex flex-col max-h-[90vh]">
 
-        {/* Header */}
+        {
+  // This is the header section
+}
         <div className="p-6 border-b border-border-subtle flex items-center justify-between bg-surface-raised/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
@@ -121,7 +123,9 @@ export function ImportPlaylistModal({ onClose }: ImportPlaylistModalProps) {
         </div>
 
         <div className="p-8 space-y-6">
-          {/* Input Area */}
+          {
+  // This is the input area part
+}
           <div className="grid grid-cols-1 gap-4">
             <div className="relative group">
               <textarea
@@ -149,7 +153,9 @@ export function ImportPlaylistModal({ onClose }: ImportPlaylistModalProps) {
             )}
           </div>
 
-          {/* Preview Section */}
+          {
+  // This is the preview section part
+}
           {preview && (
             <div className="bg-surface-raised/50 border border-border-subtle rounded-2xl p-6 space-y-4 animate-slide-up">
               <div className="flex items-center gap-5">
@@ -192,7 +198,9 @@ export function ImportPlaylistModal({ onClose }: ImportPlaylistModalProps) {
           )}
         </div>
 
-        {/* Footer */}
+        {
+  // This is the footer section
+}
         <div className="p-6 bg-surface-raised/50 border-t border-border-subtle flex items-center justify-end gap-3">
           <button
             onClick={onClose}

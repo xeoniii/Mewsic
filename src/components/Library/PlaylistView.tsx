@@ -27,6 +27,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useLibrary } from "../../hooks/useLibrary";
 import { formatDuration, pluralize, shuffleArray } from "../../utils/helpers";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
+import { getCoverArtSync } from "../../utils/tauriApi";
 import { ManagePlaylistTracksModal } from "./ManagePlaylistTracksModal";
 import { EditPlaylistModal } from "./EditPlaylistModal";
 import type { Track } from "../../types";
@@ -384,9 +385,13 @@ export function PlaylistView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {
+  // This is the header section
+}
       <div className="relative px-6 py-6 border-b border-border-subtle flex-shrink-0">
-        {/* Blurred bg */}
+        {
+  // This is the blurred bg part
+}
         <div
           className="absolute inset-0 opacity-10 pointer-events-none"
           style={{
@@ -397,10 +402,14 @@ export function PlaylistView() {
 
         <div className="relative flex flex-col lg:flex-row gap-6 lg:items-center justify-between">
           <div className="flex items-center gap-4 min-w-0">
-            {/* Playlist icon */}
+            {
+  // This is the playlist icon part
+}
             <div className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center flex-shrink-0 overflow-hidden border border-border-subtle">
               {playlist.coverArt ? (
                 <img src={playlist.coverArt} alt="Playlist cover" className="w-full h-full object-cover" />
+              ) : playlistTracks.length > 0 ? (
+                <img src={getCoverArtSync(playlistTracks[0].filePath, 128) || undefined} alt="Playlist cover" className="w-full h-full object-cover" />
               ) : (
                 <ListMusic size={28} className="text-accent" />
               )}
@@ -420,7 +429,9 @@ export function PlaylistView() {
             </div>
           </div>
 
-          {/* Actions */}
+          {
+  // This is the actions part
+}
           <div className="flex flex-wrap items-center gap-3 lg:justify-end mt-2 lg:mt-0 w-full lg:w-auto">
             <div className="flex gap-2">
               <button
@@ -454,7 +465,9 @@ export function PlaylistView() {
 
             <div className="flex flex-1 justify-end min-w-max">
               <div className="flex items-center gap-1 bg-surface-raised border border-border-subtle p-1 rounded-xl">
-                {/* View toggle */}
+                {
+  // This is the view toggle part
+}
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setPlaylistViewMode("list")}
@@ -511,7 +524,9 @@ export function PlaylistView() {
         </div>
       </div>
 
-      {/* Track list */}
+      {
+  // This is the track list part
+}
       <div 
         ref={containerRef}
         onScroll={handleScroll}

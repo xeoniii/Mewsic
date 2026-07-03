@@ -117,7 +117,9 @@ export function ManagePlaylistTracksModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="bg-surface-elevated w-full max-w-2xl h-[80vh] rounded-3xl border border-border-glass shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
+        {
+  // This is the header section
+}
         <div className="px-6 py-5 border-b border-border-subtle flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="text-xl font-display font-bold text-text-primary">
@@ -132,7 +134,9 @@ export function ManagePlaylistTracksModal({
           </button>
         </div>
 
-        {/* Search */}
+        {
+  // This is the search part
+}
         <div className="px-6 py-4 bg-surface-overlay border-b border-border-subtle flex-shrink-0">
           <div className="relative">
             <Search
@@ -150,7 +154,9 @@ export function ManagePlaylistTracksModal({
           </div>
         </div>
 
-        {/* List */}
+        {
+  // This is the list part
+}
         <div ref={listContainerRef} className="flex-1 px-2 py-2 min-h-0">
           {filtered.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-text-muted opacity-60">
@@ -169,7 +175,9 @@ export function ManagePlaylistTracksModal({
           )}
         </div>
 
-        {/* Footer */}
+        {
+  // This is the footer section
+}
         <div className="px-6 py-4 border-t border-border-subtle bg-surface-overlay flex justify-end flex-shrink-0">
           <button onClick={onClose} className="btn-accent px-8">
             Done

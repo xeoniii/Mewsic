@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Palette, FolderOpen, RefreshCw, Trash2, Check, RotateCcw,
   Info, Music2, Volume2, FolderInput, Sun, Moon, Keyboard, Monitor, Share2, MessageSquare, Bell, Zap, FileUp, FolderPlus, Database, Power,
-  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, DownloadCloud, Wrench, ShieldAlert, Terminal, LayoutGrid, List, Sliders, Puzzle, Crop
+  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, DownloadCloud, Wrench, ShieldAlert, Terminal, LayoutGrid, List, Sliders, Puzzle, Crop, SidebarClose
 } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
@@ -66,6 +66,8 @@ export function SettingsView() {
     setCustomTitlebar,
     roundedCorners,
     setRoundedCorners,
+    sidebarCollapsed,
+    setSidebarCollapsed,
     shortcuts,
     setShortcut,
     resetShortcuts,
@@ -86,6 +88,7 @@ export function SettingsView() {
     setSmoothScrollEnabled,
     minecraftIntegrationEnabled,
     setMinecraftIntegrationEnabled,
+    sharonMode,
   } = useStore(useShallow((s) => ({
     accentColor: s.accentColor,
     customAccentColor: s.customAccentColor,
@@ -103,6 +106,8 @@ export function SettingsView() {
     setCustomTitlebar: s.setCustomTitlebar,
     roundedCorners: s.roundedCorners,
     setRoundedCorners: s.setRoundedCorners,
+    sidebarCollapsed: s.sidebarCollapsed,
+    setSidebarCollapsed: s.setSidebarCollapsed,
     shortcuts: s.shortcuts,
     setShortcut: s.setShortcut,
     resetShortcuts: s.resetShortcuts,
@@ -123,6 +128,7 @@ export function SettingsView() {
     setSmoothScrollEnabled: s.setSmoothScrollEnabled,
     minecraftIntegrationEnabled: s.minecraftIntegrationEnabled,
     setMinecraftIntegrationEnabled: s.setMinecraftIntegrationEnabled,
+    sharonMode: s.sharonMode,
   })));
 
   const { displayTracks, displayMusicDir, displayPlaylistsDir } = useDisplayData();
@@ -220,18 +226,24 @@ export function SettingsView() {
   return (
     <div ref={containerRef} className="flex flex-col h-full overflow-y-auto">
       <div className="px-8 py-6 border-b border-border-subtle flex-shrink-0">
-        <h1 className="font-display font-bold text-2xl text-text-primary">Settings</h1>
+        <h1 className="font-display font-bold text-2xl text-text-primary">
+          {sharonMode ? "Shittings" : "Settings"}
+        </h1>
         <p className="text-text-muted text-sm mt-1">
-          Customize Mewsic to your taste
+          {sharonMode ? "My name is Ander Dinngus. Ooooh Shittings" : "Customize Mewsic to your taste"}
         </p>
       </div>
 
       <div className="p-6 space-y-5">
-        {/* Row 1: Preferences & Shortcuts */}
+        {
+          // This is row 1: preferences & shortcuts
+        }
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
           <Section icon={<Palette size={16} />} title="Preferences">
             <div className="space-y-8">
-              {/* Theme Mode */}
+              {
+                // This is the theme mode part
+              }
               <div>
                 <p className="text-xs font-bold text-text-primary uppercase tracking-wider mb-3 opacity-80">Theme Mode</p>
                 <div className="flex items-center justify-between p-3 rounded-xl bg-surface-overlay border border-border-subtle">
@@ -250,7 +262,9 @@ export function SettingsView() {
                 </div>
               </div>
 
-              {/* Accent Color */}
+              {
+                // This is the accent color part
+              }
               <div>
                 <p className="text-xs font-bold text-text-primary uppercase tracking-wider mb-3 opacity-80">Accent Color</p>
                 <div className="grid grid-cols-5 gap-y-6 mb-8">
@@ -290,7 +304,9 @@ export function SettingsView() {
                 </div>
               </div>
 
-              {/* Interface Scale */}
+              {
+                // This is the interface scale part
+              }
               <div>
                 <p className="text-xs font-bold text-text-primary uppercase tracking-wider mb-3 opacity-80">Interface Scale</p>
                 <div className="flex items-center gap-3 mb-2">
@@ -345,7 +361,9 @@ export function SettingsView() {
           </Section>
         </div>
 
-        {/* Row 2: Storage & Maintenance & System & Audio */}
+        {
+          // This is row 2: storage & maintenance & system & audio
+        }
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
           <Section icon={<FolderOpen size={16} />} title="Storage & Maintenance">
             <div className="space-y-6">
@@ -388,7 +406,9 @@ export function SettingsView() {
                 </div>
               </div>
 
-              {/* Maintenance Section */}
+              {
+                // This is the maintenance section part
+              }
               <div className="space-y-3 pt-2">
                 <span className="text-xs font-bold text-text-muted uppercase tracking-widest">Maintenance</span>
                 <div className="grid grid-cols-1 gap-2">
@@ -544,11 +564,15 @@ export function SettingsView() {
                     <div className="w-9 h-5 bg-surface-raised rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent border border-border-subtle" />
                   </label>
                 </div>
+
+
               </div>
             </div>
           </Section>
 
-          {/* Default Layouts */}
+          {
+            // This is the default layouts part
+          }
           <Section icon={<LayoutGrid size={16} />} title="Default Layouts">
             <div className="space-y-4 h-full flex flex-col">
               <div className="grid grid-cols-1 gap-2">
@@ -602,7 +626,9 @@ export function SettingsView() {
             </div>
           </Section>
 
-          {/* Library Info */}
+          {
+            // This is the library info part
+          }
           <Section icon={<Info size={16} />} title="Library Info">
             <div className="grid grid-cols-2 gap-4">
               {[
@@ -620,7 +646,9 @@ export function SettingsView() {
           </Section>
         </div>
 
-        {/* Row 4: Software Info — full width */}
+        {
+          // This is row 4: software info — full width
+        }
         <div className="grid grid-cols-1 gap-5">
           <Section icon={<ArrowUpCircle size={16} />} title="Software Info" className="lg:col-span-2">
             <div className="flex flex-col p-5 rounded-xl bg-surface-overlay border border-border-subtle gap-6">
@@ -657,27 +685,39 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Redesigned UI for Audio, Harbour, and Settings Cards. (Including this one.)</span>
+                    <span>Fixed a bug where songs with special characters like # or ? would cause the app to panic.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Added Spatial Audio Support to Audio Engine.</span>
+                    <span>Collapsible sidebar. This was already a feature on smaller window sizes, but now you can toggle it manually!</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>New Harbour Provider, SoundCloud has been added.</span>
+                    <span>The Queue system is finally exposed! You can now access it via the queue button next to the mute toggle on the player bar.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Minor UI adjustments to make the overall aesthetic better.</span>
+                    <span>All music cards now use the updated style as part of the new UI changes.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Rounded Corner Support has been added.</span>
+                    <span>Auto Updater now works perfectly (was broken due to a change in v1.0.0-2).</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Added Preview for songs in Habour Search. (depends on the track and provider.)</span>
+                    <span>Fixed a queue system bug that caused the loop-all function to stay on at all times.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Added Custom Idle Discord-RPC.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Under the hood changes to coverart loading to reduce RAM usage and CPU stress, while keeping good quality of course.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Changes and Addition to how how playlist icons work. Use them to find out!</span>
                   </li>
                 </ul>
               </div>

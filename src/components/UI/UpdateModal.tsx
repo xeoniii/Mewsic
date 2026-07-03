@@ -159,7 +159,9 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
         className="w-full max-w-md glass rounded-2xl overflow-hidden shadow-2xl relative"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
+        {
+  // This is the header section
+}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
           <h2 className="font-display font-semibold text-text-primary">Software Update</h2>
           <button onClick={onClose} className="btn-icon p-1">
@@ -167,9 +169,13 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
           </button>
         </div>
 
-        {/* Content */}
+        {
+  // Here is the main content
+}
         <div className="p-6 flex flex-col gap-6 items-center text-center">
-          {/* Icon Stage */}
+          {
+  // This is the icon stage part
+}
           <div className="relative">
             <div className="w-20 h-20 rounded-[2.5rem] bg-accent/10 flex items-center justify-center text-accent">
               {status === "checking" && <RefreshCw size={40} className="animate-spin" />}
@@ -184,7 +190,9 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
             )}
           </div>
 
-          {/* Text Stage */}
+          {
+  // This is the text stage part
+}
           <div className="space-y-2">
             <h2 className="text-xl font-bold tracking-tight text-text-primary">
               {status === "checking" && "Checking for Updates"}
@@ -204,7 +212,9 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
             </p>
           </div>
 
-          {/* Action Stage / Progress bar / Dropdown */}
+          {
+  // This is the action stage / progress bar / dropdown part
+}
           <div className="w-full space-y-4">
             {status === "available" && isLinux && (
               <div className="relative text-left" onClick={(e) => e.stopPropagation()}>
@@ -265,7 +275,9 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
           </div>
         </div>
 
-        {/* Footer */}
+        {
+  // This is the footer section
+}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border-subtle bg-surface-overlay/30">
           <button onClick={onClose} className="btn-accent bg-surface-overlay text-text-secondary hover:opacity-80">
             {status === "up-to-date" || status === "error" || status === "early-access" ? "Close" : "Cancel"}

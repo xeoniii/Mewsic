@@ -300,7 +300,9 @@ export default function HarbourView() {
   return (
     <div className="flex-1 flex flex-col h-full bg-surface-base text-text-primary overflow-hidden page relative">
       {showSecret && <SecretMenu onClose={() => setShowSecret(false)} />}
-      {/* Header */}
+      {
+  // This is the header section
+}
       <header className="p-4 md:p-6 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-border-subtle bg-surface-base/50 backdrop-blur-md sticky top-0 z-10 min-w-0">
         <div className="flex items-center gap-3 min-w-0 shrink-0">
           <div className="w-10 h-10 rounded-xl bg-accent-muted flex items-center justify-center text-accent flex-shrink-0 border border-white/5">
@@ -343,7 +345,9 @@ export default function HarbourView() {
         </form>
       </header>
 
-      {/* Content */}
+      {
+  // Here is the main content
+}
       <div ref={containerRef} className="flex-1 overflow-y-auto p-6">
         {loading && results.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-text-muted">
@@ -603,7 +607,9 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="p-8 space-y-6 overflow-y-auto max-h-[75vh] scrollbar-thin">
-          {/* URL Input */}
+          {
+  // This is the url input part
+}
           <div className="space-y-3">
             <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
               Source URL / Identifier
@@ -621,7 +627,9 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Format Selection */}
+            {
+  // This is the format selection part
+}
             <div className="space-y-3">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
                 Output Format
@@ -644,7 +652,9 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-            {/* IP Version Selection */}
+            {
+  // This is the ip version selection part
+}
             <div className="space-y-3">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
                 Network Protocol
@@ -696,7 +706,9 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
-          {/* Terminal View */}
+          {
+  // This is the terminal view part
+}
           <div className="space-y-3">
             <div className="flex items-center justify-between ml-1">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">
