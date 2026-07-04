@@ -4,19 +4,19 @@
   "pub_date": "2026-06-01T16:30:00Z",
   "platforms": {
     "linux-x86_64": {
-      "signature": "PLACEHOLDER_SIGNATURE",
+      "signature": "PLACEHOLDERSIGNATURE",
       "url": "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup.deb"
     },
     "windows-x86_64": {
-      "signature": "PLACEHOLDER_SIGNATURE",
+      "signature": "PLACEHOLDERSIGNATURE",
       "url": "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup.msi.zip"
     },
     "darwin-aarch64": {
-      "signature": "PLACEHOLDER_SIGNATURE",
+      "signature": "PLACEHOLDERSIGNATURE",
       "url": "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-arm64.app.tar.gz"
     },
     "darwin-x86_64": {
-      "signature": "PLACEHOLDER_SIGNATURE",
+      "signature": "PLACEHOLDERSIGNATURE",
       "url": "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-x64.app.tar.gz"
     }
   }
