@@ -30,6 +30,9 @@ Compiled binaries for Windows, macOS, and Linux are available on the [Releases](
 #### Development Setup
 
 ```bash
+# Make sure you have npm and cargo installed
+sudo apt update && sudo apt install npm && sudo apt install cargo -y
+
 # Clone the repository
 git clone https://github.com/xeoniii/Mewsic.git
 cd Mewsic
