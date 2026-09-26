@@ -54,4 +54,5 @@ npm run tauri build
 The compiled installers and executables will be generated in `src-tauri/target/release/bundle/`.
 
 ---
+
 *Licensed under GPL v3.0.*
