@@ -3015,6 +3015,7 @@ fn main() {
             // Force the window icon for the main window (helps with dock icons on some Linux DEs)
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_icon(icon);
+                let _ = window.maximize();
                 let win_clone = window.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(1000));

@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback, useRef, useEffect, memo } from "
 import { List as VList } from "react-window";
 import {
   Search, LayoutGrid, List, SlidersHorizontal,
-  Music2, RefreshCw, Plus, PlusCircle, ChevronDown, ArrowUp, ArrowDown
+  Music2, RefreshCw, Plus, PlusCircle, ChevronDown, ArrowUp, ArrowDown, Globe
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { importFiles, deleteTrack } from "../../utils/tauriApi";
@@ -165,7 +165,7 @@ export function LibraryView() {
   const {
     isScanning, searchQuery, setSearchQuery, musicDir,
     libraryViewMode, setLibraryViewMode, removeTrack, addNotification,
-    setAddTrack, setEditTrack, setDeleteTrack
+    setAddTrack, setEditTrack, setDeleteTrack, setActiveView
   } = useStore(useShallow((s) => ({
     isScanning: s.isScanning,
     searchQuery: s.searchQuery,
@@ -178,6 +178,7 @@ export function LibraryView() {
     setAddTrack: s.setAddTrack,
     setEditTrack: s.setEditTrack,
     setDeleteTrack: s.setDeleteTrack,
+    setActiveView: s.setActiveView,
   })));
 
   const { displayTracks, demoTrackCount } = useDisplayData();
@@ -394,14 +395,50 @@ export function LibraryView() {
 }
       <div ref={contentRef} className="flex-1 overflow-hidden">
         {filtered.length === 0 ? (
-          <div className="empty-state pt-16">
-            <Music2 size={40} className="text-text-muted" />
+          <div className="empty-state pt-16 flex flex-col items-center justify-center text-center p-8">
+            <div
+              className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center mb-4"
+              style={{ boxShadow: "0 0 32px var(--accent-glow)" }}
+            >
+              <Music2 size={32} className="text-accent" />
+            </div>
             <div>
-              <p className="text-text-secondary font-medium">No tracks found</p>
-              <p className="text-text-muted text-sm">
-                {localSearch ? "Try a different search" : "Add music to your library"}
+              <p className="text-text-primary font-display font-semibold text-lg">
+                {localSearch ? "No matching tracks" : "Your library is empty"}
+              </p>
+              <p className="text-text-muted text-sm mt-1 max-w-sm">
+                {localSearch
+                  ? `No tracks matching "${localSearch}". Try another keyword or clear search.`
+                  : "Import audio files from your computer or explore Harbour to download music."}
               </p>
             </div>
+            {localSearch ? (
+              <button
+                onClick={() => setLocalSearch("")}
+                className="mt-6 px-4 py-2 text-xs font-semibold text-accent hover:text-accent-bright bg-accent/10 hover:bg-accent/20 rounded-xl transition-all"
+              >
+                Clear Search
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+                <button
+                  onClick={handleImport}
+                  className="btn-accent h-10 px-5 flex items-center gap-2 text-sm font-semibold rounded-xl shadow-accent hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  title="Import audio files from your computer"
+                >
+                  <Plus size={16} strokeWidth={2.5} />
+                  <span>Import Songs</span>
+                </button>
+                <button
+                  onClick={() => setActiveView("harbour")}
+                  className="h-10 px-5 flex items-center gap-2 text-sm font-semibold rounded-xl bg-surface-raised hover:bg-surface-overlay border border-border-subtle hover:border-accent/40 text-text-primary hover:scale-[1.02] active:scale-[0.98] transition-all shadow-sm"
+                  title="Go to Harbour to find and download music"
+                >
+                  <Globe size={16} className="text-accent" />
+                  <span>Download Music</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : libraryViewMode === "list" ? (
           <div className="px-8 pb-4 h-full">

@@ -133,6 +133,7 @@
       {
         "visible": false,
         "fullscreen": false,
+        "maximized": true,
         "resizable": true,
         "title": "Mewsic",
         "width": 1280,
