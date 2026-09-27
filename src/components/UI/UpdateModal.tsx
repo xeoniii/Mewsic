@@ -8,11 +8,14 @@ import { getOSName } from "../../utils/tauriApi";
 
 interface UpdateModalProps {
   onClose: () => void;
+  initialVersion?: string | null;
 }
 
-export function UpdateModal({ onClose }: UpdateModalProps) {
-  const [status, setStatus] = useState<"checking" | "available" | "up-to-date" | "downloading" | "error" | "early-access">("checking");
-  const [newVersion, setNewVersion] = useState<string | null>(null);
+export function UpdateModal({ onClose, initialVersion }: UpdateModalProps) {
+  const [status, setStatus] = useState<"checking" | "available" | "up-to-date" | "downloading" | "error" | "early-access">(
+    initialVersion ? "available" : "checking"
+  );
+  const [newVersion, setNewVersion] = useState<string | null>(initialVersion ?? null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [linuxPackageType, setLinuxPackageType] = useState<"deb" | "rpm">("deb");

@@ -131,6 +131,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "visible": false,
         "fullscreen": false,
         "resizable": true,
         "title": "Mewsic",
@@ -156,7 +157,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://raw.githubusercontent.com/xeoniii/Mewsic/main/updater.json"
+        "https://github.com/xeoniii/Mewsic/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMTQ3Qzg3QzhDQzc2NEYKUldSUGRzekloM3dVczA5ZE4xd0J2N0FJMWlIRjhaZ0ppb1F5czU3VForU092REVzR0dDbkMzNVIK"
     }

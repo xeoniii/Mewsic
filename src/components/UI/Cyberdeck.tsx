@@ -29,7 +29,6 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
     musicDir, setMusicDir, playlistsDir, setPlaylistsDir, coversDir, setCoversDir,
     isDemoMode, setDemoMode,
     isDevMode, setDevMode,
-    sharonMode, setSharonMode,
     purgeVirtualTracks
   } = useStore(useShallow((s) => ({
     tracks: s.tracks, playlists: s.playlists, accentColor: s.accentColor, setAccentColor: s.setAccentColor,
@@ -43,7 +42,6 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
     musicDir: s.musicDir, setMusicDir: s.setMusicDir, playlistsDir: s.playlistsDir, setPlaylistsDir: s.setPlaylistsDir,
     coversDir: s.coversDir, setCoversDir: s.setCoversDir, isDemoMode: s.isDemoMode, setDemoMode: s.setDemoMode,
     isDevMode: s.isDevMode, setDevMode: s.setDevMode,
-    sharonMode: s.sharonMode, setSharonMode: s.setSharonMode,
     purgeVirtualTracks: s.purgeVirtualTracks
   })));
   const { rescanDirectory } = useLibrary();
@@ -120,14 +118,6 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
         addLog(`DEMO MODE: ${demoState ? 'ENABLED' : 'DISABLED'}`, "success");
         break;
 
-      case "secretmode":
-        if (args[1] === "sharon") {
-          setSharonMode(!sharonMode);
-          addLog("ACCESS GRANTED. WELCOME TO SHITVILLE.", "success");
-        } else {
-          addLog(`UNKNOWN COMMAND: ${action}. TYPE 'HELP' FOR LIST.`, "error");
-        }
-        break;
 
       case "set":
         if (args[1] === "help") {
@@ -370,7 +360,7 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
             </div>
              <div className="flex flex-col justify-center">
               <p className="text-accent font-black text-sm uppercase tracking-[0.3em] mb-4">
-                {sharonMode ? "Mewsic Cyberdick" : "Mewsic Cyberdeck"}
+                Mewsic Cyberdeck
               </p>
 
               <div className="flex gap-6 font-mono text-xs">
@@ -627,7 +617,7 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-3">
             <Terminal size={16} className="text-accent animate-pulse" />
             <span className="text-[11px] font-black text-accent tracking-[0.4em] uppercase shadow-accent">
-              {sharonMode ? "Mewsic Cyberdick" : "Mewsic Cyberdeck"}
+              Mewsic Cyberdeck
             </span>
           </div>
           <button onClick={onClose} className="text-accent/60 hover:text-accent transition-all hover:scale-110 p-1">

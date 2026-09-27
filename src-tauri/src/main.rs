@@ -1836,11 +1836,25 @@ fn set_dev_mode(
 }
 
 #[tauri::command]
-fn toggle_fullscreen(window: tauri::Window) -> Result<(), String> {
+fn toggle_fullscreen(window: tauri::Window) -> Result<bool, String> {
     let is_fullscreen = window.is_fullscreen().unwrap_or(false);
+    let new_state = !is_fullscreen;
     window
-        .set_fullscreen(!is_fullscreen)
-        .map_err(|e| e.to_string())
+        .set_fullscreen(new_state)
+        .map_err(|e| e.to_string())?;
+
+    let _ = window.emit("fullscreen-changed", new_state);
+
+    let win_clone = window.clone();
+    std::thread::spawn(move || {
+        for delay in [50, 150, 300] {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+            let real_state = win_clone.is_fullscreen().unwrap_or(new_state);
+            let _ = win_clone.emit("fullscreen-changed", real_state);
+        }
+    });
+
+    Ok(new_state)
 }
 
 #[tauri::command]
@@ -1889,10 +1903,10 @@ fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn get_process_pss(pid: sysinfo::Pid) -> u64 {
+fn get_process_pss(_pid: sysinfo::Pid) -> u64 {
     #[cfg(target_os = "linux")]
     {
-        let path = format!("/proc/{}/smaps_rollup", pid);
+        let path = format!("/proc/{}/smaps_rollup", _pid);
         if let Ok(content) = std::fs::read_to_string(path) {
             for line in content.lines() {
                 if line.starts_with("Pss:") {
@@ -2413,6 +2427,13 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 fn close_window(window: tauri::Window) -> Result<(), String> {
     window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn show_window(window: tauri::Window) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    let _ = window.set_focus();
+    Ok(())
 }
 
 #[tauri::command]
@@ -2994,6 +3015,11 @@ fn main() {
             // Force the window icon for the main window (helps with dock icons on some Linux DEs)
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_icon(icon);
+                let win_clone = window.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    let _ = win_clone.show();
+                });
             }
 
             {
@@ -3088,6 +3114,7 @@ fn main() {
             fetch_lyrics,
             fetch_image_as_base64,
             minimize_window,
+            show_window,
             toggle_maximize_window,
             close_window,
             is_window_maximized,

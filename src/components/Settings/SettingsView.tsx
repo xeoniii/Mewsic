@@ -14,7 +14,6 @@ import { clearImageCache, getOSName } from "../../utils/tauriApi";
 import { ACCENT_PRESETS } from "../../utils/helpers";
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
 import { ConfirmationModal } from "../UI/ConfirmationModal";
-import { UpdateModal } from "../UI/UpdateModal";
 
 import { ThemedSlider } from "../UI/ThemedSlider";
 import { ColorPickerModal } from "./ColorPickerModal";
@@ -88,7 +87,7 @@ export function SettingsView() {
     setSmoothScrollEnabled,
     minecraftIntegrationEnabled,
     setMinecraftIntegrationEnabled,
-    sharonMode,
+    setShowUpdateModal,
   } = useStore(useShallow((s) => ({
     accentColor: s.accentColor,
     customAccentColor: s.customAccentColor,
@@ -128,7 +127,7 @@ export function SettingsView() {
     setSmoothScrollEnabled: s.setSmoothScrollEnabled,
     minecraftIntegrationEnabled: s.minecraftIntegrationEnabled,
     setMinecraftIntegrationEnabled: s.setMinecraftIntegrationEnabled,
-    sharonMode: s.sharonMode,
+    setShowUpdateModal: s.setShowUpdateModal,
   })));
 
   const { displayTracks, displayMusicDir, displayPlaylistsDir } = useDisplayData();
@@ -150,7 +149,6 @@ export function SettingsView() {
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [appVersion, setAppVersion] = useState<string>("0.8.4");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
@@ -227,10 +225,10 @@ export function SettingsView() {
     <div ref={containerRef} className="flex flex-col h-full overflow-y-auto">
       <div className="px-8 py-6 border-b border-border-subtle flex-shrink-0">
         <h1 className="font-display font-bold text-2xl text-text-primary">
-          {sharonMode ? "Shittings" : "Settings"}
+          Settings
         </h1>
         <p className="text-text-muted text-sm mt-1">
-          {sharonMode ? "My name is Ander Dinngus. Ooooh Shittings" : "Customize Mewsic to your taste"}
+          Customize Mewsic to your taste
         </p>
       </div>
 
@@ -685,39 +683,27 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug where songs with special characters like # or ? would cause the app to panic.</span>
+                    <span>Fixed a bug where toggling fullscreen didn't work and needed and reload to work.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Collapsible sidebar. This was already a feature on smaller window sizes, but now you can toggle it manually!</span>
+                    <span>Increased loading times of app.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>The Queue system is finally exposed! You can now access it via the queue button next to the mute toggle on the player bar.</span>
+                    <span>New loading screen animation, because it looks cool.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>All music cards now use the updated style as part of the new UI changes.</span>
+                    <span>Fixed a bug that caused the plugin directory to be scanned twice every time its opened.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Auto Updater now works perfectly (was broken due to a change in v1.0.0-2).</span>
+                    <span>Auto Updater should work now(its quite frustrating).</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a queue system bug that caused the loop-all function to stay on at all times.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Added Custom Idle Discord-RPC.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Under the hood changes to coverart loading to reduce RAM usage and CPU stress, while keeping good quality of course.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Changes and Addition to how how playlist icons work. Use them to find out!</span>
+                    <span>Changed the update reminder from a toast to a popup.</span>
                   </li>
                 </ul>
               </div>
@@ -732,10 +718,6 @@ export function SettingsView() {
 
       {showRestartModal && (
         <ConfirmationModal title="Restart" message="Titlebar changes require a restart. Save?" confirmLabel="Save" cancelLabel="Discard" onConfirm={() => setShowRestartModal(false)} onCancel={() => { setCustomTitlebar(!customTitlebar); setShowRestartModal(false); }} />
-      )}
-
-      {showUpdateModal && (
-        <UpdateModal onClose={() => setShowUpdateModal(false)} />
       )}
 
 

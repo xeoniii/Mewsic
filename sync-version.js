@@ -27,33 +27,26 @@ if (fs.existsSync(cargoPath)) {
   }
 }
 
-// 2. Sync updater.json — only update version and notes.
-//    URLs are now static (no version in filename) so they never need to change.
-const updaterPath = path.join(__dirname, 'updater.json');
-if (fs.existsSync(updaterPath)) {
+// 2. Sync package-lock.json
+const lockPath = path.join(__dirname, 'package-lock.json');
+if (fs.existsSync(lockPath)) {
   try {
-    const updater = JSON.parse(fs.readFileSync(updaterPath, 'utf8'));
-    let changed = false;
-
-    if (updater.version !== version) {
-      updater.version = version;
-      changed = true;
+    const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    let modified = false;
+    if (lock.version !== version) {
+      lock.version = version;
+      modified = true;
     }
-
-    // Update notes if it still contains a version string pattern
-    if (updater.notes) {
-      const updatedNotes = updater.notes.replace(/v\d+\.\d+[\.\d-]*/g, `v${version}`);
-      if (updatedNotes !== updater.notes) {
-        updater.notes = updatedNotes;
-        changed = true;
-      }
+    if (lock.packages && lock.packages[""] && lock.packages[""].version !== version) {
+      lock.packages[""].version = version;
+      modified = true;
     }
-
-    if (changed) {
-      fs.writeFileSync(updaterPath, JSON.stringify(updater, null, 2) + '\n', 'utf8');
-      console.log(`- Synced updater.json version to ${version}`);
+    if (modified) {
+      fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
+      console.log(`- Synced package-lock.json version to ${version}`);
     }
   } catch (e) {
-    console.error(`- Failed to update updater.json: ${e}`);
+    console.warn('Failed to sync package-lock.json', e);
   }
 }
+

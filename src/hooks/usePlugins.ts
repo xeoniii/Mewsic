@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { initPluginApi } from "../utils/pluginApi";
 import { useStore } from "../store";
@@ -584,17 +584,57 @@ export interface PluginData {
   css_content: string | null;
 }
 
+let cachedPlugins: PluginData[] | null = null;
+let inFlightFetch: Promise<PluginData[]> | null = null;
+const pluginListeners = new Set<(plugins: PluginData[]) => void>();
+
+export async function fetchPlugins(force = false): Promise<PluginData[]> {
+  if (!force && cachedPlugins) {
+    return cachedPlugins;
+  }
+  if (!force && inFlightFetch) {
+    return inFlightFetch;
+  }
+  inFlightFetch = (async () => {
+    try {
+      const loaded = await invoke<PluginData[]>("get_plugins");
+      cachedPlugins = loaded;
+      pluginListeners.forEach((fn) => {
+        try { fn(loaded); } catch (e) { console.error("Plugin listener error:", e); }
+      });
+      return loaded;
+    } finally {
+      inFlightFetch = null;
+    }
+  })();
+  return inFlightFetch;
+}
+
+export function invalidatePluginCache() {
+  return fetchPlugins(true);
+}
+
 export function usePlugins(isRoot = false) {
-  const [plugins, setPlugins] = useState<PluginData[]>([]);
+  const [plugins, setPlugins] = useState<PluginData[]>(() => cachedPlugins || []);
   const [error, setError] = useState<string | null>(null);
-  const pluginsRef = useRef<PluginData[]>([]);
+  const pluginsRef = useRef<PluginData[]>(cachedPlugins || []);
   const minecraftIntegrationEnabled = useStore(s => s.minecraftIntegrationEnabled);
   const mewsifyIntegrationEnabled = useStore(s => s.mewsifyIntegrationEnabled);
 
   useEffect(() => {
+    let isCancelled = false;
+
+    const onUpdate = (updated: PluginData[]) => {
+      if (isCancelled) return;
+      setPlugins(updated);
+      pluginsRef.current = updated;
+    };
+    pluginListeners.add(onUpdate);
+
     async function loadPlugins() {
       try {
-        const loadedPlugins = await invoke<PluginData[]>("get_plugins");
+        const loadedPlugins = await fetchPlugins();
+        if (isCancelled) return;
         setPlugins(loadedPlugins);
         pluginsRef.current = loadedPlugins;
 
@@ -663,6 +703,7 @@ export function usePlugins(isRoot = false) {
           }
         }
       } catch (e: any) {
+        if (isCancelled) return;
         console.error("Failed to load external plugins:", e);
         setError(e.toString());
       }
@@ -671,6 +712,8 @@ export function usePlugins(isRoot = false) {
     loadPlugins();
 
     return () => {
+      isCancelled = true;
+      pluginListeners.delete(onUpdate);
       if (!isRoot) return;
 
       for (const plugin of pluginsRef.current) {
@@ -687,5 +730,7 @@ export function usePlugins(isRoot = false) {
     };
   }, [minecraftIntegrationEnabled, mewsifyIntegrationEnabled, isRoot]);
 
-  return { plugins, error };
+  const refetch = useCallback(() => fetchPlugins(true), []);
+
+  return { plugins, error, refetch };
 }

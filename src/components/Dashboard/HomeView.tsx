@@ -33,7 +33,7 @@ function StatCard({
 import { useDisplayData } from "../../hooks/useDisplayData";
 
 export function HomeView() {
-  const { isScanning, setQueue, setIsPlaying, shuffleEnabled, toggleShuffle, homeViewMode, setHomeViewMode, sharonMode } =
+  const { isScanning, setQueue, setIsPlaying, shuffleEnabled, toggleShuffle, homeViewMode, setHomeViewMode } =
     useStore(useShallow((s) => ({
       isScanning: s.isScanning,
       setQueue: s.setQueue,
@@ -42,7 +42,6 @@ export function HomeView() {
       toggleShuffle: s.toggleShuffle,
       homeViewMode: s.homeViewMode,
       setHomeViewMode: s.setHomeViewMode,
-      sharonMode: s.sharonMode,
     })));
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -129,7 +128,7 @@ export function HomeView() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
           <div>
             <h2 className="font-display font-black text-3xl md:text-4xl tracking-tight text-text-primary">
-              {sharonMode ? "Welcome to Shitville!" : "Welcome back!"}
+              Welcome back!
             </h2>
           </div>
           <div className="flex items-center gap-2">

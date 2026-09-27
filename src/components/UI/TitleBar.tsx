@@ -5,9 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 
 export function TitleBar() {
-  const initialCustomTitlebar = useStore.getState().customTitlebar;
+  const showTitlebar = useStore((s) => s.customTitlebar);
   const isFullscreen = useStore((s) => s.isFullscreen);
-  const [showTitlebar] = useState(initialCustomTitlebar);
   const [isMaximized, setIsMaximized] = useState(false);
   let appWindow: any = null;
   try {

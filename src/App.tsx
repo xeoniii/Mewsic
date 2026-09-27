@@ -36,6 +36,9 @@ import { Cyberdeck } from "./components/UI/Cyberdeck";
 import { DevOverlay } from "./components/UI/DevOverlay";
 import { GlobalTooltip } from "./components/UI/GlobalTooltip";
 import { PluginView } from "./components/UI/PluginView";
+import { UpdateModal } from "./components/UI/UpdateModal";
+import { UpdatePromptModal } from "./components/UI/UpdatePromptModal";
+import { SplashScreen } from "./components/UI/SplashScreen";
 
 function ViewRouter() {
   const { activeView } = useStore(useShallow((s) => ({ activeView: s.activeView })));
@@ -69,7 +72,10 @@ export default function App() {
     showImportPlaylist, setShowImportPlaylist,
     showCreatePlaylist, setShowCreatePlaylist,
     showCyberdeck, setShowCyberdeck, setShowAbout,
-    sharePlaylist, setSharePlaylist
+    sharePlaylist, setSharePlaylist,
+    showUpdateModal, setShowUpdateModal,
+    showUpdatePrompt, setShowUpdatePrompt,
+    pendingUpdateVersion, setPendingUpdateVersion
   } = useStore(useShallow((s) => ({
     activeView: s.activeView,
     accentColor: s.accentColor,
@@ -106,6 +112,12 @@ export default function App() {
     setShowAbout: s.setShowAbout,
     sharePlaylist: s.sharePlaylist,
     setSharePlaylist: s.setSharePlaylist,
+    showUpdateModal: s.showUpdateModal,
+    setShowUpdateModal: s.setShowUpdateModal,
+    showUpdatePrompt: s.showUpdatePrompt,
+    setShowUpdatePrompt: s.setShowUpdatePrompt,
+    pendingUpdateVersion: s.pendingUpdateVersion,
+    setPendingUpdateVersion: s.setPendingUpdateVersion,
   })));
 
 
@@ -155,6 +167,10 @@ export default function App() {
   }, [lowEndMode]);
 
   useEffect(() => {
+    // Reveal window immediately once React mounts the DOM (avoids white flash and outline pop-in)
+    requestAnimationFrame(() => {
+      invoke("show_window").catch(() => {});
+    });
     const timer = setTimeout(() => {
       invoke("set_window_decorations", { decorations: !customTitlebar }).catch(() => {});
     }, 150);
@@ -166,29 +182,38 @@ export default function App() {
   }, [guiScale]);
 
   useEffect(() => {
+    let isMounted = true;
     const updateFullscreen = async () => {
-      const win = getCurrentWindow();
-      const full = await win.isFullscreen();
-      setFullscreen(full);
+      try {
+        const win = getCurrentWindow();
+        const full = await win.isFullscreen();
+        if (isMounted) setFullscreen(full);
+      } catch {}
     };
 
     updateFullscreen();
     
     const unlistenEvent = listen<boolean>("fullscreen-changed", (event) => {
-      setFullscreen(event.payload);
+      if (isMounted) setFullscreen(event.payload);
     });
 
-    const unlistenResize = getCurrentWindow().onResized(() => {
+    const scheduleChecks = () => {
       updateFullscreen();
-    });
+      setTimeout(updateFullscreen, 50);
+      setTimeout(updateFullscreen, 150);
+      setTimeout(updateFullscreen, 300);
+    };
+
+    const unlistenResize = getCurrentWindow().onResized(scheduleChecks);
 
     // DOM resize listener
-    window.addEventListener("resize", updateFullscreen);
+    window.addEventListener("resize", scheduleChecks);
 
     return () => {
+      isMounted = false;
       unlistenEvent.then((fn) => fn());
       unlistenResize.then((fn) => fn());
-      window.removeEventListener("resize", updateFullscreen);
+      window.removeEventListener("resize", scheduleChecks);
     };
   }, []);
 
@@ -219,13 +244,8 @@ export default function App() {
       try {
         const update = await check();
         if (update?.available) {
-          addNotification(
-            `Mewsic v${update.version} is available.`,
-            "info",
-            0,
-            false,
-            "Update Available"
-          );
+          setPendingUpdateVersion(update.version);
+          setShowUpdatePrompt(true);
         }
       } catch (e) {
         console.error("Failed to check for updates:", e);
@@ -233,7 +253,7 @@ export default function App() {
     }
     const timer = setTimeout(checkForUpdates, 5000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [setPendingUpdateVersion, setShowUpdatePrompt]);
 
   useEffect(() => {
     const AUDIO_EXTENSIONS = new Set(["mp3", "flac", "wav", "ogg", "m4a", "aac", "opus", "aiff", "aif", "wma"]);
@@ -440,6 +460,7 @@ export default function App() {
         background: "var(--surface-base)",
       }}
     >
+      <SplashScreen />
       <DevOverlay />
       <TitleBar />
       {
@@ -520,6 +541,24 @@ export default function App() {
         <SharePlaylistModal
           playlist={sharePlaylist}
           onClose={() => setSharePlaylist(null)}
+        />
+      )}
+
+      {showUpdatePrompt && pendingUpdateVersion && (
+        <UpdatePromptModal
+          version={pendingUpdateVersion}
+          onUpdateNow={() => {
+            setShowUpdatePrompt(false);
+            setShowUpdateModal(true);
+          }}
+          onNah={() => setShowUpdatePrompt(false)}
+        />
+      )}
+
+      {showUpdateModal && (
+        <UpdateModal
+          initialVersion={pendingUpdateVersion}
+          onClose={() => setShowUpdateModal(false)}
         />
       )}
 

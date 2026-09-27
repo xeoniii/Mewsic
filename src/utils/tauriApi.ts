@@ -210,8 +210,19 @@ export async function setTrayEnabled(enabled: boolean): Promise<void> {
   await invoke("set_tray_enabled", { enabled });
 }
 
-export async function toggleFullscreen(): Promise<void> {
-  await invoke("toggle_fullscreen");
+import { useStore } from "../store";
+
+export async function toggleFullscreen(): Promise<boolean> {
+  try {
+    const newState = await invoke<boolean>("toggle_fullscreen");
+    useStore.getState().setFullscreen(newState);
+    return newState;
+  } catch {
+    const { isFullscreen, setFullscreen } = useStore.getState();
+    const fallback = !isFullscreen;
+    setFullscreen(fallback);
+    return fallback;
+  }
 }
 
 export async function importFiles(sources: string[], targetDir: string): Promise<number> {

@@ -96,6 +96,10 @@ interface UISlice {
   playlistViewMode: "grid" | "list";
   theme: "dark" | "light";
   showAbout: boolean;
+  showUpdateModal: boolean;
+  showUpdatePrompt: boolean;
+  showSplashScreen: boolean;
+  pendingUpdateVersion: string | null;
   editTrack: Track | null;
   addTrack: Track | null;
   deleteTrack: Track | null;
@@ -131,11 +135,9 @@ interface UISlice {
   smoothScrollEnabled: boolean;
   minecraftIntegrationEnabled: boolean;
   mewsifyIntegrationEnabled: boolean;
-  sharonMode: boolean;
   sidebarCollapsed: boolean;
 
   setActiveView: (v: ViewId, skipHistory?: boolean) => void;
-  setSharonMode: (v: boolean) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setPlaylistScrollOffset: (playlistId: string, offset: number) => void;
   setActivePlaylist: (id: string | null, skipHistory?: boolean) => void;
@@ -169,6 +171,10 @@ interface UISlice {
   setShowImportPlaylist: (v: boolean) => void;
   setShowCreatePlaylist: (v: boolean) => void;
   setShowCyberdeck: (v: boolean) => void;
+  setShowUpdateModal: (v: boolean) => void;
+  setShowUpdatePrompt: (v: boolean) => void;
+  setShowSplashScreen: (v: boolean) => void;
+  setPendingUpdateVersion: (v: string | null) => void;
   setRenamePresetId: (id: string | null) => void;
   setDemoMode: (v: boolean) => void;
   setDevMode: (v: boolean) => void;
@@ -537,6 +543,10 @@ export const useStore = create<Store>()(
       playlistViewMode: "list",
       theme: "dark",
       showAbout: false,
+      showUpdateModal: false,
+      showUpdatePrompt: false,
+      showSplashScreen: true,
+      pendingUpdateVersion: null,
       editTrack: null,
       addTrack: null,
       deleteTrack: null,
@@ -585,7 +595,6 @@ export const useStore = create<Store>()(
       smoothScrollEnabled: true,
       minecraftIntegrationEnabled: true,
       mewsifyIntegrationEnabled: false,
-      sharonMode: false,
       sidebarCollapsed: false,
 
       setActiveView: (v, skipHistory = false) => {
@@ -599,7 +608,6 @@ export const useStore = create<Store>()(
       },
 
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
-      setSharonMode: (v) => set({ sharonMode: v }),
 
       setActivePlaylist: (id, skipHistory = false) => {
         const { history, historyIndex } = get();
@@ -743,6 +751,10 @@ export const useStore = create<Store>()(
       setSharePlaylist: (p) => set({ sharePlaylist: p }),
       setShowImportPlaylist: (v) => set({ showImportPlaylist: v }),
       setShowCreatePlaylist: (v) => set({ showCreatePlaylist: v }),
+      setShowUpdateModal: (v) => set({ showUpdateModal: v }),
+      setShowUpdatePrompt: (v) => set({ showUpdatePrompt: v }),
+      setShowSplashScreen: (v) => set({ showSplashScreen: v }),
+      setPendingUpdateVersion: (v) => set({ pendingUpdateVersion: v }),
       setShowCyberdeck: (v) => set({ showCyberdeck: v }),
       setRenamePresetId: (id) => set({ renamePresetId: id }),
       setDemoMode: (v) => set({ isDemoMode: v }),

@@ -41,7 +41,6 @@ export function Sidebar() {
     isScanning,
     sidebarCollapsed,
     setSidebarCollapsed,
-    sharonMode,
     setActiveView,
     setActivePlaylist,
     setShowImportPlaylist,
@@ -53,7 +52,6 @@ export function Sidebar() {
     isScanning: s.isScanning,
     sidebarCollapsed: s.sidebarCollapsed,
     setSidebarCollapsed: s.setSidebarCollapsed,
-    sharonMode: s.sharonMode,
     setActiveView: s.setActiveView,
     setActivePlaylist: s.setActivePlaylist,
     setShowImportPlaylist: s.setShowImportPlaylist,
@@ -182,7 +180,7 @@ export function Sidebar() {
         />
         <NavItem
           icon={<Settings size={15} />}
-          label={sharonMode ? "Shittings" : "Settings"}
+          label="Settings"
           view="settings"
           active={activeView === "settings"}
           onClick={() => setActiveView("settings")}
