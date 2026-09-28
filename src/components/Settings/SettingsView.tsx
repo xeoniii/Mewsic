@@ -683,31 +683,15 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug where toggling fullscreen didn't work and needed and reload to work.</span>
+                    <span>Version for update testing and clean up.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Increased loading times of app.</span>
+                    <span>Added light mode support to the new loading screen animation.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>New loading screen animation, because it looks cool.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug that caused the plugin directory to be scanned twice every time its opened.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Auto Updater should work now(its quite frustrating).</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Changed the update reminder from a toast to a popup.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Changes to some unnoticed UI parts.</span>
+                    <span>Changes to Playlist view models.</span>
                   </li>
                 </ul>
               </div>
@@ -717,7 +701,7 @@ export function SettingsView() {
       </div>
 
       {showFlashbangWarning && (
-        <ConfirmationModal title="Warning" message="This will switch to light mode. Are you sure?" confirmLabel="Yes" cancelLabel="No" onConfirm={() => { setTheme("light"); setShowFlashbangWarning(false); }} onCancel={() => setShowFlashbangWarning(false)} />
+        <ConfirmationModal title="Warning" message="Long time exposure to light can cause damage to eyes and/or screens. Are You Sure?" confirmLabel="Yes" cancelLabel="No" onConfirm={() => { setTheme("light"); setShowFlashbangWarning(false); }} onCancel={() => setShowFlashbangWarning(false)} />
       )}
 
       {showRestartModal && (

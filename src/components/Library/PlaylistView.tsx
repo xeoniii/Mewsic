@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef, memo } from "react";
 import {
-  Play, Shuffle, Trash2, Music2, ListMusic, MinusCircle, PlusCircle, Pencil, Share2, Download, List, LayoutGrid
+  Play, Shuffle, Trash2, Music2, ListMusic, MinusCircle, PlusCircle, Pencil, Share2, Download, List, LayoutGrid, Plus
 } from "lucide-react";
 import {
   DndContext,
@@ -22,19 +22,121 @@ import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { MusicCard, SortableMusicCard } from "../Dashboard/MusicCard";
-import { downloadTrack, importFiles } from "../../utils/tauriApi";
+import { downloadTrack, importFiles, getCoverArt, getCoverArtSync } from "../../utils/tauriApi";
 import { listen } from "@tauri-apps/api/event";
 import { useLibrary } from "../../hooks/useLibrary";
 import { formatDuration, pluralize, shuffleArray } from "../../utils/helpers";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
-import { getCoverArtSync } from "../../utils/tauriApi";
 import { ManagePlaylistTracksModal } from "./ManagePlaylistTracksModal";
 import { EditPlaylistModal } from "./EditPlaylistModal";
-import type { Track } from "../../types";
+import type { Playlist, Track } from "../../types";
 
 import { useDisplayData } from "../../hooks/useDisplayData";
-
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
+
+const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
+  playlist,
+  displayTracks,
+  onOpen,
+  onPlay,
+}: {
+  playlist: Playlist;
+  displayTracks: Track[];
+  onOpen: (id: string) => void;
+  onPlay: (playlist: Playlist, tracks: Track[]) => void;
+}) {
+  const [coverUrl, setCoverUrl] = useState<string | null>(playlist.coverArt || null);
+  const [imgError, setImgError] = useState(false);
+  const lowEndMode = useStore((s) => s.lowEndMode);
+
+  const playlistTracks = useMemo(() => {
+    const trackMap = new Map(displayTracks.map((t) => [t.id, t]));
+    const embeddedMap = new Map((playlist.tracks || []).map((t) => [t.id, t]));
+    return (playlist.trackIds || [])
+      .map((id) => trackMap.get(id) || embeddedMap.get(id))
+      .filter(Boolean) as Track[];
+  }, [playlist, displayTracks]);
+
+  const totalDuration = useMemo(
+    () => playlistTracks.reduce((acc, t) => acc + t.duration, 0),
+    [playlistTracks]
+  );
+
+  const firstTrack = playlistTracks[0];
+
+  useEffect(() => {
+    if (playlist.coverArt) {
+      setCoverUrl(playlist.coverArt);
+      return;
+    }
+    if (firstTrack) {
+      if (firstTrack.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+        setCoverUrl(firstTrack.coverArt);
+        return;
+      }
+      let cancelled = false;
+      getCoverArt(firstTrack.filePath, 300, lowEndMode).then((url) => {
+        if (!cancelled && url) setCoverUrl(url);
+      });
+      return () => { cancelled = true; };
+    }
+  }, [playlist.coverArt, firstTrack, lowEndMode]);
+
+  return (
+    <div
+      onClick={() => onOpen(playlist.id)}
+      className="music-card group cursor-pointer flex flex-col h-full"
+    >
+      <div className="relative aspect-square overflow-hidden bg-surface-raised rounded-xl">
+        {coverUrl && !imgError ? (
+          <img
+            src={coverUrl}
+            alt={playlist.name}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            onError={() => setImgError(true)}
+            draggable={false}
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center bg-surface-overlay text-text-muted group-hover:text-accent transition-colors">
+            <ListMusic size={44} strokeWidth={1.5} />
+          </div>
+        )}
+
+        {/* Hover play button */}
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlay(playlist, playlistTracks);
+            }}
+            className="w-11 h-11 rounded-full bg-accent flex items-center justify-center shadow-accent hover:scale-110 active:scale-95 transition-all"
+            style={{ boxShadow: "0 0 24px var(--accent-glow)" }}
+            title={`Play ${playlist.name}`}
+          >
+            <Play size={18} fill="#000" color="#000" style={{ marginLeft: 2 }} />
+          </button>
+        </div>
+      </div>
+
+      <div className="p-3 flex flex-col min-w-0 flex-1 justify-between gap-1">
+        <div>
+          <p className="font-semibold text-sm leading-snug truncate text-text-primary group-hover:text-accent transition-colors" title={playlist.name}>
+            {playlist.name}
+          </p>
+          <p className="text-xs text-text-secondary truncate mt-0.5">
+            {pluralize(playlistTracks.length, "track")}
+            {playlistTracks.length > 0 && ` · ${formatDuration(totalDuration)}`}
+          </p>
+        </div>
+        <div className="flex items-center justify-between pt-1 border-t border-border-subtle/50 text-[10px] text-text-muted font-mono">
+          <span>{playlist.createdAt ? new Date(playlist.createdAt).toLocaleDateString() : "Playlist"}</span>
+          <span className="text-accent group-hover:translate-x-0.5 transition-transform font-bold">Open →</span>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export function PlaylistView() {
   const {
@@ -51,6 +153,9 @@ export function PlaylistView() {
     updateNotification,
     removeNotification,
     addTracks,
+    setActivePlaylist,
+    setShowCreatePlaylist,
+    setShowImportPlaylist,
   } = useStore(
     useShallow((s) => ({
       activePlaylistId: s.activePlaylistId,
@@ -67,6 +172,9 @@ export function PlaylistView() {
       removeNotification: s.removeNotification,
       addTracks: s.addTracks,
       updateTrack: s.updateTrack,
+      setActivePlaylist: s.setActivePlaylist,
+      setShowCreatePlaylist: s.setShowCreatePlaylist,
+      setShowImportPlaylist: s.setShowImportPlaylist,
     }))
   );
 
@@ -376,9 +484,97 @@ export function PlaylistView() {
 
   if (!playlist) {
     return (
-      <div className="empty-state h-full">
-        <ListMusic size={40} className="text-text-muted" />
-        <p className="text-text-secondary">Playlist not found</p>
+      <div className="flex flex-col h-full overflow-y-auto page p-6 md:p-8">
+        {/* Playlists Directory Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-border-subtle">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-xl bg-accent-muted flex items-center justify-center text-accent flex-shrink-0"
+              style={{ boxShadow: "0 0 20px var(--accent-glow)" }}
+            >
+              <ListMusic size={22} />
+            </div>
+            <div>
+              <h2 className="font-display font-black text-2xl md:text-3xl tracking-tight text-text-primary leading-tight">
+                Playlists
+              </h2>
+              <p className="text-xs text-text-muted mt-0.5">
+                {pluralize(displayPlaylists.length, "playlist")} in your library
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowImportPlaylist(true)}
+              className="h-9 px-3.5 flex items-center gap-2 rounded-xl bg-surface-raised hover:bg-surface-overlay border border-border-subtle hover:border-accent/40 text-text-primary text-xs font-semibold transition-all shadow-sm"
+              title="Import playlist (JSON)"
+            >
+              <Download size={14} />
+              <span>Import</span>
+            </button>
+            <button
+              onClick={() => setShowCreatePlaylist(true)}
+              className="btn-accent h-9 px-4 flex items-center gap-2 text-xs font-semibold rounded-xl shadow-accent hover:scale-[1.02] active:scale-[0.98] transition-all"
+              title="Create new playlist"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+              <span>New Playlist</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Playlists Grid */}
+        {displayPlaylists.length === 0 ? (
+          <div className="empty-state pt-16 flex flex-col items-center justify-center text-center p-8">
+            <div
+              className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center mb-4 text-accent"
+              style={{ boxShadow: "0 0 32px var(--accent-glow)" }}
+            >
+              <ListMusic size={32} />
+            </div>
+            <div>
+              <p className="text-text-primary font-display font-semibold text-lg">
+                No playlists yet
+              </p>
+              <p className="text-text-muted text-sm mt-1 max-w-sm">
+                Create a custom playlist to organize your tracks or import one from a file.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={() => setShowCreatePlaylist(true)}
+                className="btn-accent h-10 px-5 flex items-center gap-2 text-sm font-semibold rounded-xl shadow-accent hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                <Plus size={16} strokeWidth={2.5} />
+                <span>Create Playlist</span>
+              </button>
+              <button
+                onClick={() => setShowImportPlaylist(true)}
+                className="h-10 px-5 flex items-center gap-2 text-sm font-semibold rounded-xl bg-surface-raised hover:bg-surface-overlay border border-border-subtle hover:border-accent/40 text-text-primary transition-all shadow-sm"
+              >
+                <Download size={16} />
+                <span>Import JSON</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {displayPlaylists.map((pl) => (
+              <PlaylistOverviewCard
+                key={pl.id}
+                playlist={pl}
+                displayTracks={displayTracks}
+                onOpen={(id) => setActivePlaylist(id)}
+                onPlay={(targetPl, tracksToPlay) => {
+                  if (!tracksToPlay.length) return;
+                  setQueue(tracksToPlay, 0, targetPl.id);
+                  setIsPlaying(true);
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     );
   }

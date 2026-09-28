@@ -5,6 +5,8 @@ import { useStore } from "../../store";
 export function SplashScreen() {
   const showSplashScreen = useStore((s) => s.showSplashScreen);
   const setShowSplashScreen = useStore((s) => s.setShowSplashScreen);
+  const theme = useStore((s) => s.theme);
+  const isLight = theme === "light";
 
   // Smooth, continuous timeline: "init" -> "slide" (40ms) -> "exit" (1550ms) -> "done" (2100ms)
   const [stage, setStage] = useState<"init" | "slide" | "exit" | "done">("init");
@@ -63,8 +65,10 @@ export function SplashScreen() {
       onClick={() => setShowSplashScreen(false)}
       className="fixed inset-0 z-[999999] flex flex-col items-center justify-center select-none cursor-pointer"
       style={{
-        backgroundColor: "rgba(7, 9, 13, 0.68)",
-        backgroundImage: "radial-gradient(circle at center, rgba(16, 22, 34, 0.5) 0%, rgba(7, 9, 13, 0.8) 100%)",
+        backgroundColor: isLight ? "rgba(245, 247, 250, 0.75)" : "rgba(7, 9, 13, 0.68)",
+        backgroundImage: isLight
+          ? "radial-gradient(circle at center, rgba(255, 255, 255, 0.85) 0%, rgba(230, 235, 242, 0.8) 100%)"
+          : "radial-gradient(circle at center, rgba(16, 22, 34, 0.5) 0%, rgba(7, 9, 13, 0.8) 100%)",
         backdropFilter: "blur(20px) saturate(150%)",
         WebkitBackdropFilter: "blur(20px) saturate(150%)",
         opacity: isExit ? 0 : 1,
@@ -78,7 +82,7 @@ export function SplashScreen() {
         className="absolute w-80 h-80 rounded-full pointer-events-none blur-3xl"
         style={{
           background: "var(--accent-glow, rgba(27, 217, 106, 0.22))",
-          opacity: isSlide ? 0.45 : 0.15,
+          opacity: isLight ? (isSlide ? 0.3 : 0.1) : (isSlide ? 0.45 : 0.15),
           transform: isSlide ? "scale(1.25)" : "scale(0.85)",
           transition: `opacity ${slideDuration} ${slideCurve}, transform ${slideDuration} ${slideCurve}`,
         }}
@@ -120,7 +124,10 @@ export function SplashScreen() {
               transition: `transform ${slideDuration} ${slideCurve}, opacity ${slideDuration} ${slideCurve}`,
             }}
           >
-            <span className="font-display font-black text-4xl md:text-5xl tracking-tight text-white leading-none">
+            <span
+              className={`font-display font-black text-4xl md:text-5xl tracking-tight leading-none ${isLight ? "text-slate-900" : "text-white"
+                }`}
+            >
               Mewsic
             </span>
           </div>
@@ -129,7 +136,8 @@ export function SplashScreen() {
 
       {/* Animated Light Sweep Underline */}
       <div
-        className="relative mt-8 h-[2px] rounded-full overflow-hidden bg-white/10"
+        className={`relative mt-8 h-[2px] rounded-full overflow-hidden ${isLight ? "bg-black/10" : "bg-white/10"
+          }`}
         style={{
           width: isSlide ? "240px" : "28px",
           opacity: isSlide ? 0.9 : 0,

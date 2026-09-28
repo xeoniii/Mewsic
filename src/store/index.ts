@@ -611,7 +611,7 @@ export const useStore = create<Store>()(
 
       setActivePlaylist: (id, skipHistory = false) => {
         const { history, historyIndex } = get();
-        const v = id ? "playlist" : "library" as ViewId;
+        const v = "playlist" as ViewId;
         if (!skipHistory) {
           const newHistory = history.slice(0, historyIndex + 1);
           newHistory.push({ view: v, playlistId: id });

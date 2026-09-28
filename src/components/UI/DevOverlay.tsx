@@ -81,6 +81,8 @@ export function DevOverlay() {
     playlists,
     activeView,
     setActiveView,
+    activePlaylistId,
+    setActivePlaylist,
     addNotification,
     theme,
     setTheme,
@@ -1164,7 +1166,11 @@ export function DevOverlay() {
                       <button
                         key={v.id}
                         onClick={() => {
-                          setActiveView(v.id);
+                          if (v.id === "playlist") {
+                            useStore.setState({ activePlaylistId: null, activeView: "playlist" });
+                          } else {
+                            setActiveView(v.id);
+                          }
                           addLog(`Navigated view -> ${v.id}`);
                         }}
                         style={{
@@ -1180,6 +1186,39 @@ export function DevOverlay() {
                       </button>
                     ))}
                   </div>
+
+                  {playlists && playlists.length > 0 && (
+                    <div style={{ padding: "0 8px 8px 8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                      <div style={{ fontSize: "10px", color: "#707b8c", fontWeight: "bold", textTransform: "uppercase" }}>
+                        Playlists Quick-Select ({playlists.length})
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
+                        {playlists.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              setActivePlaylist(p.id);
+                              addLog(`Opened playlist -> ${p.name}`);
+                            }}
+                            style={{
+                              ...imguiBtnStyle,
+                              backgroundColor: activePlaylistId === p.id && activeView === "playlist" ? "#2b4c73" : "#171a21",
+                              borderColor: activePlaylistId === p.id && activeView === "playlist" ? "#88c0d0" : "#2e3542",
+                              color: activePlaylistId === p.id && activeView === "playlist" ? "#fff" : "#abb2bf",
+                              padding: "4px 6px",
+                              textAlign: "left",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={`${p.name} (${p.trackIds?.length || 0} tracks)`}
+                          >
+                            ♫ {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Theme & Visual Options */}

@@ -470,8 +470,6 @@ async fn get_plugins(app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, St
         .map(|p| p.join("plugins"))
         .unwrap_or_else(|_| PathBuf::from("plugins"));
 
-    println!("[PluginLoader] Scanning plugins dir: {:?}", plugins_dir);
-
     if !plugins_dir.exists() {
         if let Err(e) = fs::create_dir_all(&plugins_dir) {
             eprintln!("[PluginLoader] Failed to create plugins directory: {}", e);
@@ -484,13 +482,10 @@ async fn get_plugins(app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, St
     if let Ok(entries) = fs::read_dir(&plugins_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            println!("[PluginLoader] Examining path: {:?}", path);
             if path.is_dir() && path.extension().and_then(|s| s.to_str()) == Some("mewsic") {
                 let manifest_path = path.join("manifest.json");
-                println!("[PluginLoader] Found .mewsic dir, checking manifest: {:?}", manifest_path);
                 if manifest_path.exists() {
                     let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                    println!("[PluginLoader] Loaded plugin id: {}", id);
                     
                     let manifest_str = fs::read_to_string(&manifest_path).unwrap_or_default();
                     let manifest: serde_json::Value = serde_json::from_str(&manifest_str).unwrap_or(serde_json::json!({}));
@@ -504,8 +499,6 @@ async fn get_plugins(app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, St
                         js_content,
                         css_content,
                     });
-                } else {
-                    println!("[PluginLoader] Manifest missing!");
                 }
             }
         }
@@ -2543,8 +2536,6 @@ async fn fetch_spotify_playlist(url: String) -> Result<String, String> {
         return Err("Invalid Spotify URL. Must be a public playlist, album, or track link.".into());
     };
 
-    println!("Mewsify fetching embed: {}", embed_url);
-
     let mut cmd = std::process::Command::new("curl");
     cmd.args(&[
         "-s",
@@ -2564,7 +2555,6 @@ async fn fetch_spotify_playlist(url: String) -> Result<String, String> {
 
     let output = cmd.output().map_err(|e| format!("Failed to execute curl: {}", e))?;
     let html = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
-    println!("Mewsify embed fetch length: {}", html.len());
 
     // The embed page exposes all data in a __NEXT_DATA__ JSON script tag
     let re = regex::Regex::new(r#"(?s)<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>"#).unwrap();
