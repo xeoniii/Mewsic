@@ -109,6 +109,7 @@ interface UISlice {
   roundedCorners: boolean;
   customTitlebar: boolean;
   isFullscreen: boolean;
+  isMaximized: boolean;
   discordEnabled: boolean;
   systemNotifications: boolean;
   lowEndMode: boolean;
@@ -153,6 +154,7 @@ interface UISlice {
   setRoundedCorners: (v: boolean) => void;
   setCustomTitlebar: (v: boolean) => void;
   setFullscreen: (v: boolean) => void;
+  setIsMaximized: (v: boolean) => void;
   setDiscordEnabled: (v: boolean) => void;
   setSystemNotifications: (v: boolean) => void;
   setLowEndMode: (v: boolean) => void;
@@ -536,7 +538,7 @@ export const useStore = create<Store>()(
       volume: 0.8,
       repeatMode: "off",
       shuffleEnabled: false,
-      guiScale: 1.15,
+      guiScale: 1.0,
       trayEnabled: true,
       libraryViewMode: "list",
       homeViewMode: "list",
@@ -556,6 +558,7 @@ export const useStore = create<Store>()(
       roundedCorners: true,
       customTitlebar: true,
       isFullscreen: false,
+      isMaximized: true,
       discordEnabled: true,
       systemNotifications: true,
       lowEndMode: false,
@@ -660,6 +663,7 @@ export const useStore = create<Store>()(
       setRoundedCorners: (v) => set({ roundedCorners: v }),
       setCustomTitlebar: (v) => set({ customTitlebar: v }),
       setFullscreen: (v) => set({ isFullscreen: v }),
+      setIsMaximized: (v) => set({ isMaximized: v }),
       setDiscordEnabled: (v) => set({ discordEnabled: v }),
       setSystemNotifications: (v) => set({ systemNotifications: v }),
       setLowEndMode: (v) => set({ lowEndMode: v }),

@@ -33,6 +33,7 @@ import type { Playlist, Track } from "../../types";
 
 import { useDisplayData } from "../../hooks/useDisplayData";
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
+import { useExtractedColors } from "../../utils/colorExtractor";
 
 const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
   playlist,
@@ -482,6 +483,30 @@ export function PlaylistView() {
     }
   };
 
+  const theme = useStore((s) => s.theme);
+  const isLight = theme === "light";
+
+  const headerCoverUrl = useMemo(() => {
+    if (!playlist) return null;
+    if (playlist.coverArt) return playlist.coverArt;
+    if (playlistTracks.length > 0) {
+      const firstTrack = playlistTracks[0];
+      if (firstTrack.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+        return firstTrack.coverArt;
+      }
+      return getCoverArtSync(firstTrack.filePath, 256) || firstTrack.coverArt || null;
+    }
+    return null;
+  }, [playlist, playlistTracks]);
+
+  const [headerImgError, setHeaderImgError] = useState(false);
+
+  useEffect(() => {
+    setHeaderImgError(false);
+  }, [headerCoverUrl]);
+
+  const extractedColors = useExtractedColors(!headerImgError ? headerCoverUrl : null);
+
   if (!playlist) {
     return (
       <div className="flex flex-col h-full overflow-y-auto page p-6 md:p-8">
@@ -584,28 +609,106 @@ export function PlaylistView() {
       {
   // This is the header section
 }
-      <div className="relative px-6 py-6 border-b border-border-subtle flex-shrink-0">
-        {
-  // This is the blurred bg part
-}
-        <div
-          className="absolute inset-0 opacity-10 pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(ellipse at 0% 100%, var(--accent) 0%, transparent 60%)",
-          }}
-        />
+      <div className="relative px-6 py-6 border-b border-border-subtle flex-shrink-0 overflow-hidden">
+        {/* Thick, lush blurred gradient wave across the whole playlist panel */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden transition-opacity duration-700"
+          viewBox="0 0 1000 120"
+          preserveAspectRatio="none"
+          style={{ opacity: extractedColors ? 0.75 : 0.3 }}
+        >
+          <defs>
+            <linearGradient id="playlistThickWaveGrad1" x1="0%" y1="20%" x2="100%" y2="80%">
+              <stop offset="0%" stopColor={extractedColors ? extractedColors.primaryRgb : "var(--accent)"} stopOpacity="0.05" />
+              <stop offset="10%" stopColor={extractedColors ? extractedColors.primaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.35 : 0.45} />
+              <stop offset="45%" stopColor={extractedColors ? extractedColors.primaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.3 : 0.4} />
+              <stop offset="75%" stopColor={extractedColors ? extractedColors.secondaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.25 : 0.35} />
+              <stop offset="100%" stopColor={extractedColors ? extractedColors.secondaryRgb : "var(--accent)"} stopOpacity="0.02" />
+            </linearGradient>
+
+            <linearGradient id="playlistThickWaveGrad2" x1="5%" y1="0%" x2="95%" y2="100%">
+              <stop offset="0%" stopColor={extractedColors ? extractedColors.secondaryRgb : "var(--accent)"} stopOpacity="0.04" />
+              <stop offset="20%" stopColor={extractedColors ? extractedColors.secondaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.25 : 0.32} />
+              <stop offset="60%" stopColor={extractedColors ? extractedColors.primaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.28 : 0.38} />
+              <stop offset="90%" stopColor={extractedColors ? extractedColors.secondaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.2 : 0.28} />
+              <stop offset="100%" stopColor={extractedColors ? extractedColors.primaryRgb : "var(--accent)"} stopOpacity="0.02" />
+            </linearGradient>
+
+            <linearGradient id="playlistAreaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={extractedColors ? extractedColors.primaryRgb : "var(--accent)"} stopOpacity={isLight ? 0.05 : 0.09} />
+              <stop offset="100%" stopColor={extractedColors ? extractedColors.secondaryRgb : "var(--accent)"} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+
+          {/* Soft ambient wave fill underneath the curve */}
+          <path
+            d="M 0,55 C 160,85 300,25 500,50 C 700,75 840,95 1000,55 L 1000,120 L 0,120 Z"
+            fill="url(#playlistAreaGrad)"
+            style={{ opacity: isLight ? 0.4 : 0.55 }}
+          />
+
+          {/* Deep ambient blur glow behind the curve (70px thick, wide blur) */}
+          <path
+            d="M 0,55 C 160,85 300,25 500,50 C 700,75 840,95 1000,55"
+            fill="none"
+            stroke="url(#playlistThickWaveGrad1)"
+            strokeWidth="70"
+            strokeLinecap="round"
+            style={{ filter: "blur(32px)", opacity: isLight ? 0.2 : 0.3 }}
+          />
+
+          {/* Thick core blurred wave (42px thick, medium blur) */}
+          <path
+            d="M 0,55 C 160,85 300,25 500,50 C 700,75 840,95 1000,55"
+            fill="none"
+            stroke="url(#playlistThickWaveGrad1)"
+            strokeWidth="42"
+            strokeLinecap="round"
+            style={{ filter: "blur(18px)", opacity: isLight ? 0.25 : 0.35 }}
+          />
+
+          {/* Soft inner body wave (24px thick, smooth soft blur - no thin string) */}
+          <path
+            d="M 0,55 C 160,85 300,25 500,50 C 700,75 840,95 1000,55"
+            fill="none"
+            stroke="url(#playlistThickWaveGrad1)"
+            strokeWidth="24"
+            strokeLinecap="round"
+            style={{ filter: "blur(10px)", opacity: isLight ? 0.2 : 0.28 }}
+          />
+
+          {/* Complementary harmonic blurred wave (36px thick, 16px blur) */}
+          <path
+            d="M 0,68 C 180,32 340,98 550,60 C 750,25 880,82 1000,60"
+            fill="none"
+            stroke="url(#playlistThickWaveGrad2)"
+            strokeWidth="36"
+            strokeLinecap="round"
+            style={{ filter: "blur(16px)", opacity: isLight ? 0.15 : 0.22 }}
+          />
+        </svg>
 
         <div className="relative flex flex-col lg:flex-row gap-6 lg:items-center justify-between">
           <div className="flex items-center gap-4 min-w-0">
-            {
-  // This is the playlist icon part
-}
-            <div className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center flex-shrink-0 overflow-hidden border border-border-subtle">
-              {playlist.coverArt ? (
-                <img src={playlist.coverArt} alt="Playlist cover" className="w-full h-full object-cover" />
-              ) : playlistTracks.length > 0 ? (
-                <img src={getCoverArtSync(playlistTracks[0].filePath, 128) || undefined} alt="Playlist cover" className="w-full h-full object-cover" />
+            {/* Playlist icon */}
+            <div
+              className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center flex-shrink-0 overflow-hidden border border-border-subtle transition-all duration-500"
+              style={{
+                boxShadow: extractedColors
+                  ? `0 8px 24px ${extractedColors.glowRgba(isLight ? 0.2 : 0.35)}`
+                  : undefined,
+                borderColor: extractedColors
+                  ? extractedColors.glowRgba(0.35)
+                  : undefined,
+              }}
+            >
+              {headerCoverUrl && !headerImgError ? (
+                <img
+                  src={headerCoverUrl}
+                  alt="Playlist cover"
+                  className="w-full h-full object-cover"
+                  onError={() => setHeaderImgError(true)}
+                />
               ) : (
                 <ListMusic size={28} className="text-accent" />
               )}

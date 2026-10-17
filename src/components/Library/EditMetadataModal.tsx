@@ -5,7 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
-import { saveTrackMetadata, getCoverArt, fetchTrackMetadata } from "../../utils/tauriApi";
+import { saveTrackMetadata, saveWordLyrics, getCoverArt, fetchTrackMetadata } from "../../utils/tauriApi";
 import type { Track } from "../../types";
 
 interface EditMetadataModalProps {
@@ -20,7 +20,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
   const [album, setAlbum] = useState(track.album);
   const [genre, setGenre] = useState(track.genre);
   const [year, setYear] = useState(track.year?.toString() ?? "");
-  const [lyrics, setLyrics] = useState(track.lyrics ?? "");
+  const [lyrics, setLyrics] = useState(track.wordLyrics ?? track.lyrics ?? "");
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [newCover, setNewCover] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -142,6 +142,16 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
     setSaving(true);
     setError(null);
     try {
+      const hasWordSync = lyrics ? /<(\d+):(\d{2})(?:\.(\d+))?>/.test(lyrics) : false;
+      let tagLyrics = lyrics;
+
+      if (hasWordSync && lyrics) {
+        // Save word-by-word lyrics to sidecar .elrc file (leaves MP3 clean)
+        await saveWordLyrics(track.filePath, track.id, lyrics);
+        // Strip <...> word tags so standard music players only see clean line LRC
+        tagLyrics = lyrics.replace(/<[^>]+>/g, "").replace(/  +/g, " ");
+      }
+
       await saveTrackMetadata(track.filePath, {
         title: title || undefined,
         artist: artist || undefined,
@@ -150,8 +160,9 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
         genre: genre || undefined,
         year: year ? parseInt(year, 10) : undefined,
         cover_art: newCover || undefined,
-        lyrics: lyrics || undefined,
+        lyrics: tagLyrics || undefined,
       });
+
       const updated: Track = {
         ...track,
         title: title || track.title,
@@ -159,7 +170,8 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
         album: album || track.album,
         genre: genre || track.genre,
         year: year ? parseInt(year, 10) : track.year,
-        lyrics: lyrics || undefined,
+        lyrics: tagLyrics || undefined,
+        wordLyrics: hasWordSync ? lyrics : track.wordLyrics,
       };
       updateTrack(updated);
       onClose();
@@ -271,28 +283,44 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs text-text-muted flex items-center gap-1">
-                <FileText size={12} />
-                Lyrics
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-text-muted flex items-center gap-1 font-medium">
+                  <FileText size={12} />
+                  Lyrics
+                </label>
+                {lyrics && /<(\d+):(\d{2})(?:\.(\d+))?>/.test(lyrics) ? (
+                  <span className="text-[10px] text-accent font-bold bg-accent/15 px-2 py-0.5 rounded-full border border-accent/30">
+                    Word-Synced (.elrc)
+                  </span>
+                ) : lyrics && /\[\d+:\d{2}(?:\.\d+)?\]/.test(lyrics) ? (
+                  <span className="text-[10px] text-text-primary font-semibold bg-surface-raised px-2 py-0.5 rounded-full border border-border-subtle">
+                    Line-Synced
+                  </span>
+                ) : lyrics ? (
+                  <span className="text-[10px] text-text-muted font-medium bg-surface-raised/40 px-2 py-0.5 rounded-full">
+                    Plain Text
+                  </span>
+                ) : null}
+              </div>
               <div className="relative">
                 <button 
                   onClick={() => setShowLyricsOptions(!showLyricsOptions)}
-                  className="text-[10px] text-accent hover:underline flex items-center gap-1"
+                  disabled={fetchingLyrics}
+                  className="text-[10px] text-accent hover:underline flex items-center gap-1 font-semibold"
                 >
                   <Search size={10} />
-                  Fetch Lyrics
+                  {fetchingLyrics ? "Searching..." : "Fetch Lyrics"}
                 </button>
                 {showLyricsOptions && (
-                  <div className="absolute right-0 top-6 z-10 w-40 glass border border-border-subtle rounded-lg shadow-xl overflow-hidden py-1">
+                  <div className="absolute right-0 top-6 z-10 w-48 glass border border-border-subtle rounded-lg shadow-xl overflow-hidden py-1">
                     <button 
                       onClick={handleFetchLyricsOnline}
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 flex items-center gap-2"
                     >
                       <Globe size={12} />
-                      Search Online
+                      Search Online (Word/Line)
                     </button>
                     <button 
                       onClick={handleSelectLrcFile}
@@ -308,7 +336,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
             <textarea
               value={lyrics}
               onChange={(e) => setLyrics(e.target.value)}
-              placeholder="Lyrics content (LRC format supported)..."
+              placeholder="Lyrics content (LRC or Word-Synced ELRC supported)..."
               className="w-full h-48 px-3 py-2 rounded-lg bg-surface-overlay border border-border-subtle text-text-primary text-xs outline-none focus:border-border-glass transition-colors resize-none font-mono scrollbar-hide"
             />
           </div>

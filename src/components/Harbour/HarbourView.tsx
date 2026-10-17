@@ -250,7 +250,9 @@ export default function HarbourView() {
         album: track.album,
         coverArt: track.cover_art,
         downloadId: notifId,
-        provider
+        provider,
+        url: track.url,
+        trackId: track.id,
       });
       updateNotification(notifId, { message: "Download complete!", type: "success", loading: false });
       setTimeout(() => removeNotification(notifId), 3000);

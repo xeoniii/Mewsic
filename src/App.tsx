@@ -68,7 +68,7 @@ export default function App() {
     setMusicDir, setPlaylistsDir, setCoversDir, guiScale, showAbout,
     editTrack, addTrack, deleteTrackRequest, setEditTrack, setAddTrack,
     setDeleteTrack, removeTrack, addNotification, roundedCorners, customTitlebar,
-    setFullscreen, isFullscreen, lowEndMode, shortcuts,
+    setFullscreen, isFullscreen, isMaximized, setIsMaximized, lowEndMode, shortcuts,
     showImportPlaylist, setShowImportPlaylist,
     showCreatePlaylist, setShowCreatePlaylist,
     showCyberdeck, setShowCyberdeck, setShowAbout,
@@ -101,6 +101,8 @@ export default function App() {
     customTitlebar: s.customTitlebar,
     setFullscreen: s.setFullscreen,
     isFullscreen: s.isFullscreen,
+    isMaximized: s.isMaximized,
+    setIsMaximized: s.setIsMaximized,
     lowEndMode: s.lowEndMode,
     shortcuts: s.shortcuts,
     showImportPlaylist: s.showImportPlaylist,
@@ -178,30 +180,55 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.style.fontSize = `${guiScale * 14}px`;
+    // 1.0x is default baseline (zoom 1.0)
+    // 2.0x is max (mapped to what 1.5x was previously, i.e. 1.152x visual scale)
+    // Values below 1.0x scale down proportionally (down to 0.95x at 0.8x)
+    const zoomRatio = guiScale >= 1.0
+      ? 1.0 + (guiScale - 1.0) * 0.152
+      : Math.max(0.85, 1.0 + (guiScale - 1.0) * 0.25);
+
+    // Scale the entire interface proportionally so Lucide icons, buttons, sliders, text, and layout scale in perfect unison
+    (document.documentElement.style as any).zoom = zoomRatio;
+    document.documentElement.style.fontSize = "16px";
+    document.documentElement.style.setProperty("--gui-scale", `${guiScale}`);
+    document.documentElement.style.setProperty("--zoom-ratio", `${zoomRatio}`);
+
+    // Compensate root viewport dimensions so layout always spans 100% of the window
+    // (prevents empty black gaps under player bar when zoom < 1.0, and prevents off-screen clipping when zoom > 1.0)
+    const invZoom = 1 / zoomRatio;
+    document.documentElement.style.width = `${invZoom * 100}vw`;
+    document.documentElement.style.height = `${invZoom * 100}vh`;
+    document.body.style.width = `${invZoom * 100}vw`;
+    document.body.style.height = `${invZoom * 100}vh`;
   }, [guiScale]);
 
   useEffect(() => {
     let isMounted = true;
-    const updateFullscreen = async () => {
+    const updateWindowState = async () => {
       try {
         const win = getCurrentWindow();
         const full = await win.isFullscreen();
         if (isMounted) setFullscreen(full);
+        const max = await invoke<boolean>("is_window_maximized");
+        if (isMounted) setIsMaximized(max);
       } catch {}
     };
 
-    updateFullscreen();
+    updateWindowState();
     
-    const unlistenEvent = listen<boolean>("fullscreen-changed", (event) => {
+    const unlistenFullscreen = listen<boolean>("fullscreen-changed", (event) => {
       if (isMounted) setFullscreen(event.payload);
     });
 
+    const unlistenMaximized = listen<boolean>("maximized-changed", (event) => {
+      if (isMounted) setIsMaximized(event.payload);
+    });
+
     const scheduleChecks = () => {
-      updateFullscreen();
-      setTimeout(updateFullscreen, 50);
-      setTimeout(updateFullscreen, 150);
-      setTimeout(updateFullscreen, 300);
+      updateWindowState();
+      setTimeout(updateWindowState, 50);
+      setTimeout(updateWindowState, 150);
+      setTimeout(updateWindowState, 300);
     };
 
     const unlistenResize = getCurrentWindow().onResized(scheduleChecks);
@@ -211,7 +238,8 @@ export default function App() {
 
     return () => {
       isMounted = false;
-      unlistenEvent.then((fn) => fn());
+      unlistenFullscreen.then((fn) => fn());
+      unlistenMaximized.then((fn) => fn());
       unlistenResize.then((fn) => fn());
       window.removeEventListener("resize", scheduleChecks);
     };
@@ -454,9 +482,10 @@ export default function App() {
 
   return (
     <div
-      className={`flex flex-col ${roundedCorners && !isFullscreen ? "rounded-xl overflow-hidden" : ""}`}
+      className={`flex flex-col ${roundedCorners && !isFullscreen && !isMaximized ? "rounded-xl overflow-hidden" : ""}`}
       style={{
-        height: "100vh",
+        width: "calc(100vw / var(--zoom-ratio, 1))",
+        height: "calc(100vh / var(--zoom-ratio, 1))",
         background: "var(--surface-base)",
       }}
     >

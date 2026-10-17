@@ -32,6 +32,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Download bundled yt-dlp and ffmpeg binaries
+        shell: bash
+        run: |
+          mkdir -p src-tauri/bin
+          curl -L -o src-tauri/bin/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+          curl -L -o src-tauri/bin/ffmpeg.exe https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64
+
       - name: Build the app (Windows MSI)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -95,6 +102,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Download bundled yt-dlp and ffmpeg binaries
+        run: |
+          mkdir -p src-tauri/bin
+          curl -L -o src-tauri/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+          curl -L -o src-tauri/bin/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-darwin-arm64
+          chmod +x src-tauri/bin/*
+
       - name: Build the app (macOS ARM64)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -154,6 +168,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
+
+      - name: Download bundled yt-dlp and ffmpeg binaries
+        run: |
+          mkdir -p src-tauri/bin
+          curl -L -o src-tauri/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+          curl -L -o src-tauri/bin/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-darwin-x64
+          chmod +x src-tauri/bin/*
 
       - name: Build the app (macOS x86_64)
         uses: tauri-apps/tauri-action@v0
@@ -219,6 +240,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
+
+      - name: Download bundled yt-dlp and ffmpeg binaries
+        run: |
+          mkdir -p src-tauri/bin
+          curl -L -o src-tauri/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
+          curl -L -o src-tauri/bin/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-linux-x64
+          chmod +x src-tauri/bin/*
 
       - name: Build the app (DEB + RPM)
         uses: tauri-apps/tauri-action@v0

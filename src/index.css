@@ -367,6 +367,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
   animation: scaleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+@keyframes tooltipFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-tooltip {
+  animation: tooltipFade 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @keyframes equalizer {
   0%, 100% { transform: scaleY(0.4); }
   50%      { transform: scaleY(1);   }
@@ -383,15 +392,18 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 12px;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.75rem;
   color: var(--text-secondary);
   font-weight: 500;
   font-size: 0.9rem;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   margin-bottom: 2px;
+}
+.nav-item svg {
+  flex-shrink: 0;
 }
 .nav-item:hover {
   background: var(--accent-muted);
@@ -432,16 +444,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .btn-icon {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px;
-  border-radius: 10px;
+  padding: 0.5rem;
+  border-radius: 0.625rem;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.btn-icon svg {
+  flex-shrink: 0;
+  display: block;
 }
 .btn-icon:hover { 
   background: var(--accent-muted); 
@@ -455,9 +473,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .btn-accent {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: 12px;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
   border: none;
   background: var(--accent);
   color: #000;
@@ -466,6 +485,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 12px var(--accent-glow);
+  line-height: 1.2;
+}
+.btn-accent svg {
+  flex-shrink: 0;
 }
 .btn-accent:hover   { 
   opacity: 0.9; 

@@ -157,6 +157,18 @@ export async function saveTrackMetadata(filePath: string, metadata: TrackMetadat
   await invoke("save_track_metadata", { filePath, metadata: deepSnake(metadata) });
 }
 
+export async function saveWordLyrics(filePath: string, trackId: string, content: string): Promise<void> {
+  await invoke("save_word_lyrics", { filePath, trackId, content });
+}
+
+export async function loadWordLyrics(filePath: string, trackId: string): Promise<string | null> {
+  return invoke<string | null>("load_word_lyrics", { filePath, trackId });
+}
+
+export async function deleteWordLyrics(filePath: string, trackId: string): Promise<void> {
+  await invoke("delete_word_lyrics", { filePath, trackId });
+}
+
 const MAX_COVER_CACHE = 50;
 const CACHE_TTL = 30000;
 
@@ -257,9 +269,11 @@ export async function downloadTrack(
   album: string,
   coverArt: string,
   downloadId: string,
-  provider?: string
+  provider?: string,
+  url?: string,
+  trackId?: string
 ): Promise<string> {
-  return invoke("download_track", { musicDir, title, artist, album, coverArt, downloadId, provider });
+  return invoke("download_track", { musicDir, title, artist, album, coverArt, downloadId, provider, url, trackId });
 }
 
 export async function updateMediaMetadata(

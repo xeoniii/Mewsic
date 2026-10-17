@@ -149,7 +149,7 @@ export function SettingsView() {
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("0.8.4");
+  const [appVersion, setAppVersion] = useState<string>("1.0.0");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -309,7 +309,18 @@ export function SettingsView() {
                 <p className="text-xs font-bold text-text-primary uppercase tracking-wider mb-3 opacity-80">Interface Scale</p>
                 <div className="flex items-center gap-3 mb-2">
                   <span className="text-xs text-text-muted font-mono">0.8</span>
-                  <ThemedSlider min={0.8} max={2} step={0.05} value={localGuiScale} onChange={setLocalGuiScale} formatTooltip={(v: number) => `${v.toFixed(2)}x`} />
+                  <ThemedSlider
+                    min={0.8}
+                    max={2}
+                    step={0.05}
+                    value={localGuiScale}
+                    onChange={setLocalGuiScale}
+                    onChangeCommit={(v: number) => {
+                      setLocalGuiScale(v);
+                      setGuiScale(v);
+                    }}
+                    formatTooltip={(v: number) => `${v.toFixed(2)}x`}
+                  />
                   <span className="text-xs text-text-muted font-mono">2</span>
                 </div>
                 <div className="flex items-center justify-between mt-4">
@@ -318,7 +329,7 @@ export function SettingsView() {
                   </span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { setGuiScale(1.15); setLocalGuiScale(1.15); }}
+                      onClick={() => { setGuiScale(1.0); setLocalGuiScale(1.0); }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-raised border border-border-subtle text-[10px] font-black text-text-muted hover:text-accent hover:border-accent transition-all uppercase tracking-widest"
                     >
                       <RotateCcw size={10} />
@@ -683,15 +694,43 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Version for update testing and clean up.</span>
+                    <span>v1.0.0 Main Release!</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Added light mode support to the new loading screen animation.</span>
+                    <span>Fixed scaling issues with the interface scale slider.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
                     <span>Changes to Playlist view models.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Fixed tooltip location issues.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Revamped Lyrics UI.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Word by word lyrics support. (with manual syncing support and auto fetching)</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Updated Harbour API to allow for much faster download speeds.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Fixed a bug causing songs with special characters such as # to not load any metadata.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Harbour dependencies now come bundled with the app for instant access.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Fixed issues with resizing window and borders.</span>
                   </li>
                 </ul>
               </div>
@@ -701,7 +740,7 @@ export function SettingsView() {
       </div>
 
       {showFlashbangWarning && (
-        <ConfirmationModal title="Warning" message="Long time exposure to light can cause damage to eyes and/or screens. Are You Sure?" confirmLabel="Yes" cancelLabel="No" onConfirm={() => { setTheme("light"); setShowFlashbangWarning(false); }} onCancel={() => setShowFlashbangWarning(false)} />
+        <ConfirmationModal title="Warning" message="Long time exposure to bright light can cause damage to eyes and/or screens. Are You Sure?" confirmLabel="Yes" cancelLabel="No" onConfirm={() => { setTheme("light"); setShowFlashbangWarning(false); }} onCancel={() => setShowFlashbangWarning(false)} />
       )}
 
       {showRestartModal && (

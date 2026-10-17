@@ -20,6 +20,9 @@
       "dmg",
       "app"
     ],
+    "resources": [
+      "bin/*"
+    ],
     "createUpdaterArtifacts": true,
     "publisher": "xeoniii",
     "copyright": "Copyright © 2026 xeoniii",

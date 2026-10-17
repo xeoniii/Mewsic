@@ -27,7 +27,7 @@ export function ThemedSlider({
   disabled = false,
 }: ThemedSliderProps) {
   const [hoverVal, setHoverVal] = useState<number | null>(null);
-  const [tooltipPos, setTooltipPos] = useState(0);
+  const [tooltipPos, setTooltipPos] = useState<string>("50%");
 
   const progress = ((value - min) / (max - min)) * 100;
 
@@ -35,17 +35,13 @@ export function ThemedSlider({
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (disabled) return;
       const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      
-      const thumbRadius = 6;
-      const trackWidth = rect.width - 2 * thumbRadius;
-      // Clamp the mouse x position to the interactable track
-      const clampedX = Math.max(0, Math.min(trackWidth, x - thumbRadius));
-      const pct = trackWidth > 0 ? clampedX / trackWidth : 0;
-      
-      const val = min + pct * (max - min);
+      if (!rect.width) return;
+
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const val = min + ratio * (max - min);
+
       setHoverVal(val);
-      setTooltipPos(x);
+      setTooltipPos(`${(ratio * 100).toFixed(2)}%`);
     },
     [min, max, disabled]
   );
@@ -65,7 +61,7 @@ export function ThemedSlider({
       {showTooltip && hoverVal !== null && (
         <div 
           className="absolute bottom-full mb-2 px-1.5 py-0.5 rounded bg-surface-overlay border border-border-glass text-[10px] font-mono text-text-primary pointer-events-none -translate-x-1/2 whitespace-nowrap z-50 shadow-lg"
-          style={{ left: tooltipPos }}
+          style={{ left: `clamp(18px, ${tooltipPos}, calc(100% - 18px))` }}
         >
           {displayTooltip}
         </div>

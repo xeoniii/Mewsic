@@ -162,17 +162,22 @@ export function ContextMenu() {
 
   useEffect(() => {
     if (visible && menuRef.current) {
+      const zoomRatio = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom-ratio")) || 1;
       const rect = menuRef.current.getBoundingClientRect();
-      const screenWidth = window.innerWidth;
-      const screenHeight = window.innerHeight;
+      const screenWidth = window.innerWidth / zoomRatio;
+      const screenHeight = window.innerHeight / zoomRatio;
 
-      let { x, y } = position;
+      const menuWidth = rect.width / zoomRatio;
+      const menuHeight = rect.height / zoomRatio;
 
-      if (x + rect.width > screenWidth) {
-        x = x - rect.width;
+      let x = position.x / zoomRatio;
+      let y = position.y / zoomRatio;
+
+      if (x + menuWidth > screenWidth) {
+        x = x - menuWidth;
       }
-      if (y + rect.height > screenHeight) {
-        y = y - rect.height;
+      if (y + menuHeight > screenHeight) {
+        y = y - menuHeight;
       }
 
       x = Math.max(8, x);
@@ -260,8 +265,8 @@ export function ContextMenu() {
           ref={menuRef}
       className="fixed z-[9999] min-w-[240px] glass-heavy p-1.5 rounded-2xl border border-border-glass shadow-[0_20px_50px_rgba(0,0,0,0.4)] animate-scale-in"
       style={{
-        left: position.x,
-        top: position.y,
+        left: position.x / (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom-ratio")) || 1),
+        top: position.y / (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom-ratio")) || 1),
         pointerEvents: "auto",
         transformOrigin: "top left",
       }}

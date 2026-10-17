@@ -63,6 +63,7 @@ pub struct Track {
     pub file_size: u64,
     pub format: String,
     pub lyrics: Option<String>,
+    pub word_lyrics: Option<String>,
     pub date_added: u64,
     pub source_id: Option<String>,
     pub provider: Option<String>,
@@ -337,6 +338,13 @@ fn parse_track(path: &Path) -> Result<Track, String> {
         None
     };
 
+    let elrc_path = path.with_extension("elrc");
+    let word_lyrics: Option<String> = if elrc_path.is_file() {
+        fs::read_to_string(elrc_path).ok().filter(|s| !s.trim().is_empty())
+    } else {
+        None
+    };
+
     let (title, artist, album, album_artist, genre, year, track_number) = if let Some(t) = tag {
         (
             t.title()
@@ -411,6 +419,7 @@ fn parse_track(path: &Path) -> Result<Track, String> {
         file_size,
         format,
         lyrics,
+        word_lyrics,
         date_added,
         source_id,
         provider,
@@ -844,11 +853,33 @@ async fn create_playlist(playlists_dir: String, name: String) -> Result<Playlist
 }
 
 #[tauri::command]
-async fn delete_track(file_path: String) -> Result<(), String> {
+async fn delete_track(app_handle: tauri::AppHandle, file_path: String) -> Result<(), String> {
     let path = PathBuf::from(&file_path);
     if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("Failed to delete file: {}", e))?;
+        fs::remove_file(&path).map_err(|e| format!("Failed to delete file: {}", e))?;
     }
+
+    // Also delete associated sidecars (.elrc, .lrc)
+    let elrc_path = path.with_extension("elrc");
+    if elrc_path.exists() {
+        let _ = fs::remove_file(elrc_path);
+    }
+    let lrc_path = path.with_extension("lrc");
+    if lrc_path.exists() {
+        let _ = fs::remove_file(lrc_path);
+    }
+
+    // Clean up app internal WordLyrics cache if present
+    if let Ok(audio_dir) = app_handle.path().audio_dir() {
+        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            let app_file = lyrics_dir.join(format!("{}.elrc", sanitize_lyrics_filename(stem)));
+            if app_file.exists() {
+                let _ = fs::remove_file(app_file);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -954,6 +985,18 @@ async fn harbour_search(
     }
 }
 
+fn clean_artist_name(artist: &str) -> String {
+    let mut s = artist.trim();
+    if let Some(pos) = s.find('·').or_else(|| s.find('•')) {
+        s = s[..pos].trim();
+    }
+    s.replace("&quot;", "\"")
+     .replace("&amp;", "&")
+     .replace("&#039;", "'")
+     .trim()
+     .to_string()
+}
+
 async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<Vec<HarbourSearchResult>, String> {
     let client = reqwest::Client::new();
     let search_url = format!("https://www.jiosaavn.com/api.php?__call=autocomplete.get&_format=json&_marker=0&cc=in&includeMetaTags=1&query={}", urlencoding::encode(&query));
@@ -974,17 +1017,32 @@ async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<
                 .as_str()
                 .unwrap_or_default()
                 .replace("50x50", "150x150");
+
+            let raw_desc = s["description"].as_str().unwrap_or_default();
+            let raw_artist = s["more_info"]["primary_artists"]
+                .as_str()
+                .filter(|a| !a.trim().is_empty())
+                .or_else(|| s["more_info"]["singers"].as_str().filter(|a| !a.trim().is_empty()))
+                .or_else(|| s["more_info"]["music"].as_str().filter(|a| !a.trim().is_empty()))
+                .unwrap_or(raw_desc);
+
+            let artist = clean_artist_name(raw_artist);
+
+            // Extract album: prefer more_info.album, else part after '·' in description
+            let raw_album = s["more_info"]["album"].as_str().unwrap_or_default();
+            let album = if !raw_album.trim().is_empty() {
+                clean_artist_name(raw_album)
+            } else if let Some(pos) = raw_desc.find('·').or_else(|| raw_desc.find('•')) {
+                clean_artist_name(&raw_desc[pos + '·'.len_utf8()..])
+            } else {
+                String::new()
+            };
+
             results.push(HarbourSearchResult {
                 id: s["id"].as_str().unwrap_or_default().to_string(),
-                title: s["title"].as_str().unwrap_or_default().to_string(),
-                artist: s["more_info"]["music"]
-                    .as_str()
-                    .unwrap_or_else(|| s["description"].as_str().unwrap_or_default())
-                    .to_string(),
-                album: s["more_info"]["album"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
+                title: s["title"].as_str().unwrap_or_default().replace("&quot;", "\"").replace("&amp;", "&").replace("&#039;", "'"),
+                artist,
+                album,
                 duration: 0.0,
                 cover_art,
                 url: s["url"].as_str().unwrap_or_default().to_string(),
@@ -1044,15 +1102,89 @@ async fn search_itunes(app_handle: tauri::AppHandle, query: String) -> Result<Ve
 }
 
 async fn get_yt_dlp_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
     let bin_name = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
-    app_dir.join(bin_name)
+
+    // 1. Check bundled resource directory (installed app / packaged bundle)
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let bundled = resource_dir.join("bin").join(bin_name);
+        if bundled.exists() {
+            return bundled;
+        }
+        let bundled_direct = resource_dir.join(bin_name);
+        if bundled_direct.exists() {
+            return bundled_direct;
+        }
+    }
+
+    // 2. Check alongside current executable (local dev / portable bundle)
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            let next_to_exe = exe_dir.join("bin").join(bin_name);
+            if next_to_exe.exists() {
+                return next_to_exe;
+            }
+            let direct_exe = exe_dir.join(bin_name);
+            if direct_exe.exists() {
+                return direct_exe;
+            }
+            let res_bin = exe_dir.join("resources").join("bin").join(bin_name);
+            if res_bin.exists() {
+                return res_bin;
+            }
+        }
+    }
+
+    // 3. Fallback to AppData / user data directory
+    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
+    let app_data_bin = app_dir.join(bin_name);
+    if app_data_bin.exists() {
+        return app_data_bin;
+    }
+
+    app_data_bin
 }
 
 async fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
     let bin_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-    app_dir.join(bin_name)
+
+    // 1. Check bundled resource directory
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let bundled = resource_dir.join("bin").join(bin_name);
+        if bundled.exists() {
+            return bundled;
+        }
+        let bundled_direct = resource_dir.join(bin_name);
+        if bundled_direct.exists() {
+            return bundled_direct;
+        }
+    }
+
+    // 2. Check alongside current executable
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            let next_to_exe = exe_dir.join("bin").join(bin_name);
+            if next_to_exe.exists() {
+                return next_to_exe;
+            }
+            let direct_exe = exe_dir.join(bin_name);
+            if direct_exe.exists() {
+                return direct_exe;
+            }
+            let res_bin = exe_dir.join("resources").join("bin").join(bin_name);
+            if res_bin.exists() {
+                return res_bin;
+            }
+        }
+    }
+
+    // 3. Fallback to AppData / user data directory
+    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
+    let app_data_bin = app_dir.join(bin_name);
+    if app_data_bin.exists() {
+        return app_data_bin;
+    }
+
+    app_data_bin
 }
 
 async fn download_file_with_progress(
@@ -1105,12 +1237,18 @@ async fn ensure_dependencies(app_handle: tauri::AppHandle) -> Result<String, Str
     let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
     let ffmpeg_path = get_ffmpeg_path(&app_handle).await;
 
-    // Create app data dir if it doesn't exist
-    let app_dir = yt_dlp_path.parent().unwrap();
-    fs::create_dir_all(app_dir).map_err(|e| format!("Failed to create app directory: {}", e))?;
+    // If both dependencies already exist (bundled in installer or cached), ready instantly!
+    if yt_dlp_path.exists() && ffmpeg_path.exists() {
+        return Ok("Dependencies ready".to_string());
+    }
+
+    // Otherwise ensure app data dir exists for on-demand downloads
+    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
+    fs::create_dir_all(&app_dir).map_err(|e| format!("Failed to create app directory: {}", e))?;
 
     // Download yt-dlp if missing
     if !yt_dlp_path.exists() {
+        let target_yt = app_dir.join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
         let url = if cfg!(target_os = "windows") {
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
         } else if cfg!(target_os = "macos") {
@@ -1119,19 +1257,20 @@ async fn ensure_dependencies(app_handle: tauri::AppHandle) -> Result<String, Str
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
         };
 
-        download_file_with_progress(&app_handle, url, &yt_dlp_path, "harbour-download-progress-ytdlp").await?;
+        download_file_with_progress(&app_handle, url, &target_yt, "harbour-download-progress-ytdlp").await?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&yt_dlp_path).map_err(|e| e.to_string())?.permissions();
+            let mut perms = fs::metadata(&target_yt).map_err(|e| e.to_string())?.permissions();
             perms.set_mode(0o755);
-            fs::set_permissions(&yt_dlp_path, perms).map_err(|e| e.to_string())?;
+            fs::set_permissions(&target_yt, perms).map_err(|e| e.to_string())?;
         }
     }
 
     // Download ffmpeg if missing
     if !ffmpeg_path.exists() {
+        let target_ff = app_dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
         let url = if cfg!(target_os = "windows") {
             "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64"
         } else if cfg!(target_os = "macos") {
@@ -1140,14 +1279,14 @@ async fn ensure_dependencies(app_handle: tauri::AppHandle) -> Result<String, Str
             "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-linux-x64"
         };
 
-        download_file_with_progress(&app_handle, url, &ffmpeg_path, "harbour-download-progress-ffmpeg").await?;
+        download_file_with_progress(&app_handle, url, &target_ff, "harbour-download-progress-ffmpeg").await?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&ffmpeg_path).map_err(|e| e.to_string())?.permissions();
+            let mut perms = fs::metadata(&target_ff).map_err(|e| e.to_string())?.permissions();
             perms.set_mode(0o755);
-            fs::set_permissions(&ffmpeg_path, perms).map_err(|e| e.to_string())?;
+            fs::set_permissions(&target_ff, perms).map_err(|e| e.to_string())?;
         }
     }
 
@@ -1334,6 +1473,334 @@ struct DownloadLog {
     message: String,
 }
 
+fn handle_downloaded_lyrics(target_path: &Path, lyrics_text: &str, tag: &mut Tag) {
+    if lyrics_text.contains('<') && lyrics_text.contains('>') {
+        // 1. Save full word-by-word lyrics into sidecar .elrc file
+        let sidecar_path = target_path.with_extension("elrc");
+        let _ = fs::write(sidecar_path, lyrics_text);
+
+        // 2. Strip <...> word tags so the MP3 tag only has clean standard line LRC
+        if let Ok(re) = regex::Regex::new(r#"<[^>]+>"#) {
+            let clean = re.replace_all(lyrics_text, "").to_string();
+            let cleaned = clean
+                .lines()
+                .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect::<Vec<_>>()
+                .join("\n");
+            tag.insert_text(ItemKey::Lyrics, cleaned);
+        } else {
+            tag.insert_text(ItemKey::Lyrics, lyrics_text.to_string());
+        }
+    } else {
+        // Standard line-by-line or plain lyrics
+        tag.insert_text(ItemKey::Lyrics, lyrics_text.to_string());
+    }
+}
+
+fn decrypt_jiosaavn_url(encrypted_b64: &str) -> Result<String, String> {
+    use des::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
+    use des::Des;
+
+    let cipher = Des::new_from_slice(b"38346591").map_err(|e| format!("DES key error: {}", e))?;
+    let mut data = general_purpose::STANDARD
+        .decode(encrypted_b64.trim())
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+
+    if data.len() % 8 != 0 {
+        return Err("Encrypted data length is not a multiple of 8".to_string());
+    }
+
+    for chunk in data.chunks_exact_mut(8) {
+        let block = GenericArray::from_mut_slice(chunk);
+        cipher.decrypt_block(block);
+    }
+
+    if let Some(&pad) = data.last() {
+        let pad = pad as usize;
+        if pad > 0 && pad <= 8 && data.len() >= pad {
+            data.truncate(data.len() - pad);
+        }
+    }
+
+    let url = String::from_utf8(data).map_err(|e| format!("UTF-8 decode error: {}", e))?;
+    let upgraded = url
+        .replace("_96.mp4", "_320.mp4")
+        .replace("_160.mp4", "_320.mp4")
+        .replace("_96.mp3", "_320.mp3")
+        .replace("_160.mp3", "_320.mp3");
+
+    Ok(upgraded)
+}
+
+#[derive(Debug, Clone)]
+struct JioSaavnResolved {
+    cdn_url: String,
+    title: String,
+    artist: String,
+    album: String,
+    cover_art: String,
+    format: String,
+}
+
+async fn resolve_jiosaavn_stream(
+    client: &reqwest::Client,
+    song_id: Option<&str>,
+    title: &str,
+    artist: &str,
+    url: Option<&str>,
+) -> Result<JioSaavnResolved, String> {
+    let mut target_id = song_id.unwrap_or("").trim().to_string();
+
+    if target_id.is_empty() {
+        if let Some(u) = url {
+            if let Some(pos) = u.find("pids=") {
+                let pid = &u[pos + 5..];
+                let end = pid.find('&').unwrap_or(pid.len());
+                target_id = pid[..end].to_string();
+            }
+        }
+    }
+
+    if target_id.is_empty() {
+        let clean_title = title
+            .replace(|c: char| !c.is_alphanumeric() && c != ' ', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let clean_artist = artist
+            .replace(|c: char| !c.is_alphanumeric() && c != ' ', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let query = format!("{} {}", clean_artist, clean_title).trim().to_string();
+        let search_url = format!(
+            "https://www.jiosaavn.com/api.php?__call=autocomplete.get&_format=json&_marker=0&cc=in&includeMetaTags=1&query={}",
+            urlencoding::encode(&query)
+        );
+
+        let resp = client
+            .get(&search_url)
+            .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .send()
+            .await
+            .map_err(|e| format!("JioSaavn search query failed: {}", e))?;
+
+        let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        if let Some(songs) = data["songs"]["data"].as_array() {
+            if let Some(first) = songs.first() {
+                target_id = first["id"].as_str().unwrap_or_default().to_string();
+            }
+        }
+    }
+
+    if target_id.is_empty() {
+        return Err("Could not find JioSaavn song ID".to_string());
+    }
+
+    let detail_url = format!(
+        "https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0%3F_marker%3D0&_format=json&pids={}",
+        target_id
+    );
+
+    let resp = client
+        .get(&detail_url)
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .send()
+        .await
+        .map_err(|e| format!("JioSaavn song details request failed: {}", e))?;
+
+    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let song_obj = data.get(&target_id)
+        .or_else(|| data.get("songs").and_then(|s| s.as_array()).and_then(|arr| arr.first()))
+        .or_else(|| data.as_object().and_then(|m| m.values().next()))
+        .ok_or_else(|| "Could not locate song details in JioSaavn response".to_string())?;
+
+    let encrypted = song_obj["encrypted_media_url"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "No encrypted_media_url found in JioSaavn details".to_string())?;
+
+    let cdn_url = decrypt_jiosaavn_url(encrypted)?;
+
+    let s_title = song_obj["song"]
+        .as_str()
+        .unwrap_or(title)
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&#039;", "'");
+    let raw_artist = song_obj["primary_artists"]
+        .as_str()
+        .filter(|a| !a.trim().is_empty())
+        .or_else(|| song_obj["singers"].as_str().filter(|a| !a.trim().is_empty()))
+        .unwrap_or(artist);
+    let s_artist = clean_artist_name(raw_artist);
+    let raw_album = song_obj["album"].as_str().unwrap_or("");
+    let s_album = clean_artist_name(raw_album);
+    let s_cover = song_obj["image"]
+        .as_str()
+        .unwrap_or("")
+        .replace("150x150", "500x500")
+        .replace("50x50", "500x500");
+
+    let fmt = if cdn_url.contains(".mp4") || cdn_url.contains(".m4a") {
+        "m4a".to_string()
+    } else {
+        "mp3".to_string()
+    };
+
+    Ok(JioSaavnResolved {
+        cdn_url,
+        title: s_title,
+        artist: s_artist,
+        album: s_album,
+        cover_art: s_cover,
+        format: fmt,
+    })
+}
+
+async fn download_jiosaavn_direct(
+    app_handle: &tauri::AppHandle,
+    client: &reqwest::Client,
+    cdn_url: &str,
+    target_path: &Path,
+    download_id: &str,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+    use std::io::Write;
+
+    let response = client
+        .get(cdn_url)
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to JioSaavn CDN: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("JioSaavn CDN returned HTTP {}", response.status()));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut file = fs::File::create(target_path).map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+    let mut last_progress = 0.0;
+
+    let mb_str = if total_size > 0 {
+        format!(" ({:.1} MB)", total_size as f64 / 1_048_576.0)
+    } else {
+        "".to_string()
+    };
+
+    let _ = app_handle.emit("download-log", DownloadLog {
+        id: download_id.to_string(),
+        message: format!("Downloading 320kbps audio{}...", mb_str),
+    });
+
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.map_err(|e| format!("Stream read error: {}", e))?;
+        file.write_all(&chunk).map_err(|e| format!("Disk write error: {}", e))?;
+        downloaded += chunk.len() as u64;
+
+        if total_size > 0 {
+            let progress = (downloaded as f64 / total_size as f64) * 100.0;
+            if progress - last_progress >= 1.0 || progress >= 100.0 {
+                let _ = app_handle.emit("download-progress", DownloadProgress {
+                    id: download_id.to_string(),
+                    progress,
+                });
+                last_progress = progress;
+            }
+        }
+    }
+
+    file.flush().map_err(|e| format!("Disk flush error: {}", e))?;
+    Ok(())
+}
+
+async fn tag_downloaded_file(
+    target_path: &Path,
+    title: &str,
+    artist: &str,
+    album: &str,
+    cover_art: &str,
+    url: Option<&str>,
+    provider: Option<&str>,
+) {
+    let clean_artist = clean_artist_name(artist);
+    let clean_album = clean_artist_name(album);
+
+    if let Ok(mut tagged_file) = lofty::read_from_path(target_path) {
+        let tag = match tagged_file.primary_tag_mut() {
+            Some(t) => t,
+            None => {
+                let t_type = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(Tag::new(t_type));
+                tagged_file.primary_tag_mut().unwrap()
+            }
+        };
+
+        if !title.is_empty() {
+            tag.insert_text(ItemKey::TrackTitle, title.to_string());
+        }
+        if !clean_artist.is_empty() {
+            tag.insert_text(ItemKey::TrackArtist, clean_artist.clone());
+        }
+        if !clean_album.is_empty() {
+            tag.insert_text(ItemKey::AlbumTitle, clean_album);
+        }
+
+        // Save source ID and provider for recommendation feature
+        let mut comment = String::new();
+        if let Some(sid) = url {
+            comment.push_str(&format!("mws-id:{}\n", sid));
+        }
+        if let Some(p) = provider {
+            comment.push_str(&format!("mws-provider:{}", p));
+        }
+        if !comment.is_empty() {
+            tag.insert_text(ItemKey::Comment, comment);
+        }
+
+        // Auto fetch and embed lyrics (word-by-word into .elrc sidecar, clean line LRC into audio tag)
+        let search_query = format!("{} {}", clean_artist, title);
+        if let Ok(Some(lyrics_text)) = fetch_lyrics(search_query).await {
+            handle_downloaded_lyrics(target_path, &lyrics_text, tag);
+        }
+
+        // Attempt to download and embed cover art
+        if !cover_art.is_empty() {
+            if let Ok(resp) = reqwest::get(cover_art).await {
+                if let Ok(bytes) = resp.bytes().await {
+                    let picture = Picture::new_unchecked(
+                        PictureType::CoverFront,
+                        Some(MimeType::Jpeg),
+                        None,
+                        bytes.to_vec(),
+                    );
+                    tag.push_picture(picture);
+                }
+            }
+        }
+
+        let _ = tagged_file.save_to_path(target_path);
+    }
+}
+
+fn sanitize_filename_component(s: &str) -> String {
+    let forbidden = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    let cleaned: String = s
+        .chars()
+        .map(|c| if forbidden.contains(&c) { '_' } else { c })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.');
+    if trimmed.is_empty() {
+        "Unknown".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 #[tauri::command]
 async fn download_track(
     app_handle: tauri::AppHandle,
@@ -1347,17 +1814,108 @@ async fn download_track(
     format: Option<String>,
     ip_version: Option<String>,
     provider: Option<String>,
+    track_id: Option<String>,
 ) -> Result<String, String> {
     use std::process::{Command, Stdio};
     use std::io::{BufRead, BufReader};
     use tauri::Emitter;
 
+    // --- High-Speed JioSaavn Direct Download (320kbps CDN) ---
+    let is_jiosaavn = provider.as_deref() == Some("jiosaavn")
+        || url.as_deref().unwrap_or_default().contains("jiosaavn.com")
+        || url.as_deref().unwrap_or_default().contains("saavncdn.com");
+
+    if is_jiosaavn {
+        let _ = app_handle.emit("download-log", DownloadLog {
+            id: download_id.clone(),
+            message: "Resolving 320kbps stream from JioSaavn CDN...".to_string(),
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_default();
+
+        match resolve_jiosaavn_stream(&client, track_id.as_deref(), &title, &artist, url.as_deref()).await {
+            Ok(jio) => {
+                let final_title = if title.is_empty() { jio.title } else { title.clone() };
+                let clean_input_artist = clean_artist_name(&artist);
+                let final_artist = if !jio.artist.is_empty() {
+                    jio.artist
+                } else if !clean_input_artist.is_empty() {
+                    clean_input_artist
+                } else {
+                    artist.clone()
+                };
+
+                let clean_input_album = clean_artist_name(&_album);
+                let final_album = if !jio.album.is_empty() {
+                    jio.album
+                } else if !clean_input_album.is_empty() && clean_input_album != "YouTube" {
+                    clean_input_album
+                } else {
+                    _album.clone()
+                };
+
+                let final_cover = if _cover_art.is_empty() { jio.cover_art } else { _cover_art.clone() };
+
+                let safe_title = sanitize_filename_component(&final_title);
+                let safe_artist = sanitize_filename_component(&final_artist);
+                let ext = jio.format;
+                let filename = format!("{} - {}.{}", safe_artist, safe_title, ext);
+                let target_path = PathBuf::from(&music_dir).join(&filename);
+
+                if target_path.exists() {
+                    let _ = app_handle.emit("download-progress", DownloadProgress {
+                        id: download_id.clone(),
+                        progress: 100.0,
+                    });
+                    return Ok(target_path.to_string_lossy().to_string());
+                }
+
+                // Stream audio bytes directly from CDN
+                download_jiosaavn_direct(&app_handle, &client, &jio.cdn_url, &target_path, &download_id).await?;
+
+                // Embed metadata, cover art, and lyrics
+                tag_downloaded_file(
+                    &target_path,
+                    &final_title,
+                    &final_artist,
+                    &final_album,
+                    &final_cover,
+                    url.as_deref(),
+                    provider.as_deref(),
+                ).await;
+
+                let _ = app_handle.emit("download-progress", DownloadProgress {
+                    id: download_id.clone(),
+                    progress: 100.0,
+                });
+                let _ = app_handle.emit("download-log", DownloadLog {
+                    id: download_id.clone(),
+                    message: "Download complete (320kbps JioSaavn CDN)".to_string(),
+                });
+
+                return Ok(target_path.to_string_lossy().to_string());
+            }
+            Err(e) => {
+                let _ = app_handle.emit("download-log", DownloadLog {
+                    id: download_id.clone(),
+                    message: format!("JioSaavn direct download failed ({}), falling back to extractor...", e),
+                });
+            }
+        }
+    }
+
+    // --- Fast Fallback / Other Providers via Optimized yt-dlp ---
     let fmt = format.unwrap_or_else(|| "mp3".to_string());
     let is_video = fmt == "mp4";
     let ipv = if ip_version.unwrap_or_default() == "ipv6" { "-6" } else { "-4" };
 
-    let safe_title = title.replace("/", "_").replace("\\", "_");
-    let safe_artist = artist.replace("/", "_").replace("\\", "_");
+    let clean_artist = clean_artist_name(&artist);
+    let search_artist = if clean_artist.is_empty() { artist.clone() } else { clean_artist.clone() };
+    let safe_title = sanitize_filename_component(&title);
+    let safe_artist = sanitize_filename_component(&clean_artist);
     let ext = if is_video { "mp4" } else { "mp3" };
     let filename = format!("{} - {}.{}", safe_artist, safe_title, ext);
     let target_path = PathBuf::from(&music_dir).join(&filename);
@@ -1366,9 +1924,16 @@ async fn download_track(
         return Ok(target_path.to_string_lossy().to_string());
     }
 
-    let query = url.as_ref().cloned().unwrap_or_else(|| {
-        format!("ytsearch1:{} official audio", format!("{} - {}", artist, title))
-    });
+    // Determine query: If URL is an iTunes / Apple Music link (or not a direct stream), search YouTube for best audio match
+    let query = if let Some(ref u) = url {
+        if u.contains("youtube.com") || u.contains("youtu.be") || u.contains("soundcloud.com") {
+            u.clone()
+        } else {
+            format!("ytsearch1:{} {} official audio", search_artist, title)
+        }
+    } else {
+        format!("ytsearch1:{} {} official audio", search_artist, title)
+    };
 
     let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
     let ffmpeg_path = get_ffmpeg_path(&app_handle).await;
@@ -1378,8 +1943,12 @@ async fn download_track(
         "--no-cache-dir".to_string(),
         "--no-check-certificates".to_string(),
         "--geo-bypass".to_string(),
-        "--extractor-args".to_string(), "youtube:player-client=ios,android,web".to_string(),
+        "--extractor-args".to_string(), "youtube:player-client=android,web".to_string(),
+        "--concurrent-fragments".to_string(), "8".to_string(),
+        "--buffer-size".to_string(), "16M".to_string(),
+        "--http-chunk-size".to_string(), "10M".to_string(),
         "--no-playlist".to_string(),
+        "--no-part".to_string(),
         "--prefer-ffmpeg".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
@@ -1393,11 +1962,16 @@ async fn download_track(
         args.push("--remux-video".to_string());
         args.push("mp4".to_string());
     } else {
+        // High quality YouTube audio extraction (bestaudio Opus 160k / AAC 128k converted to 320k CBR MP3)
+        args.push("--format".to_string());
+        args.push("bestaudio/best".to_string());
         args.push("--extract-audio".to_string());
         args.push("--audio-format".to_string());
         args.push("mp3".to_string());
         args.push("--audio-quality".to_string());
         args.push("0".to_string());
+        args.push("--postprocessor-args".to_string());
+        args.push("ExtractAudio:-threads 0 -b:a 320k".to_string());
     }
 
     args.push("--output".to_string());
@@ -1428,26 +2002,43 @@ async fn download_track(
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn download process: {}", e))?;
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+
+    // Drain stderr concurrently to avoid OS pipe deadlock and capture error details
+    let app_handle_err = app_handle.clone();
+    let download_id_err = download_id.clone();
+    let err_thread = std::thread::spawn(move || {
+        let mut err_lines = Vec::new();
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().flatten() {
+            if !line.trim().is_empty() {
+                let _ = app_handle_err.emit("download-log", DownloadLog {
+                    id: download_id_err.clone(),
+                    message: line.clone(),
+                });
+                err_lines.push(line);
+            }
+        }
+        err_lines.join("\n")
+    });
+
     let reader = BufReader::new(stdout);
+    for line in reader.lines().flatten() {
+        let _ = app_handle.emit("download-log", DownloadLog {
+            id: download_id.clone(),
+            message: line.clone(),
+        });
 
-    for line in reader.lines() {
-        if let Ok(l) = line {
-            let _ = app_handle.emit("download-log", DownloadLog {
-                id: download_id.clone(),
-                message: l.clone(),
-            });
-
-            if l.contains("[download]") && l.contains("%") {
-                // Parse percentage like "  10.5%"
-                let parts: Vec<&str> = l.split_whitespace().collect();
-                for p in parts {
-                    if p.contains("%") {
-                        if let Ok(val) = p.replace("%", "").parse::<f64>() {
-                            let _ = app_handle.emit("download-progress", DownloadProgress {
-                                id: download_id.clone(),
-                                progress: val,
-                            });
-                        }
+        if line.contains("[download]") && line.contains('%') {
+            // Parse percentage like "  10.5%"
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for p in parts {
+                if p.contains('%') {
+                    if let Ok(val) = p.replace('%', "").parse::<f64>() {
+                        let _ = app_handle.emit("download-progress", DownloadProgress {
+                            id: download_id.clone(),
+                            progress: val,
+                        });
                     }
                 }
             }
@@ -1455,61 +2046,35 @@ async fn download_track(
     }
 
     let status = child.wait().map_err(|e| format!("Failed to wait for download process: {}", e))?;
+    let stderr_output = err_thread.join().unwrap_or_default();
 
     if !status.success() {
-        return Err("Download process exited with error".to_string());
+        let err_detail = if !stderr_output.is_empty() {
+            let error_lines: Vec<&str> = stderr_output
+                .lines()
+                .filter(|l| l.contains("ERROR:") || l.contains("error:") || l.contains("Error"))
+                .collect();
+            if !error_lines.is_empty() {
+                error_lines.join("; ")
+            } else {
+                stderr_output.lines().rev().take(3).collect::<Vec<_>>().join("; ")
+            }
+        } else {
+            "Download process exited with error".to_string()
+        };
+        return Err(format!("Download failed: {}", err_detail));
     }
 
     // --- Automatic Metadata Tagging ---
-    if let Ok(mut tagged_file) = lofty::read_from_path(&target_path) {
-        let tag = match tagged_file.primary_tag_mut() {
-            Some(t) => t,
-            None => {
-                let t_type = tagged_file.primary_tag_type();
-                tagged_file.insert_tag(Tag::new(t_type));
-                tagged_file.primary_tag_mut().unwrap()
-            }
-        };
-
-        tag.insert_text(ItemKey::TrackTitle, title.clone());
-        tag.insert_text(ItemKey::TrackArtist, artist.clone());
-        tag.insert_text(ItemKey::AlbumTitle, _album.clone());
-        
-        // Save source ID and provider for recommendation feature
-        let mut comment = String::new();
-        if let Some(ref sid) = url {
-            comment.push_str(&format!("mws-id:{}\n", sid));
-        }
-        if let Some(ref p) = provider {
-            comment.push_str(&format!("mws-provider:{}", p));
-        }
-        if !comment.is_empty() {
-            tag.insert_text(ItemKey::Comment, comment);
-        }
-
-        // Auto fetch and embed lyrics
-        let search_query = format!("{} {}", artist, title);
-        if let Ok(Some(lyrics_text)) = fetch_lyrics(search_query).await {
-            tag.insert_text(ItemKey::Lyrics, lyrics_text);
-        }
-
-        // Attempt to download and embed cover art
-        if !_cover_art.is_empty() {
-            if let Ok(resp) = reqwest::get(&_cover_art).await {
-                if let Ok(bytes) = resp.bytes().await {
-                    let picture = Picture::new_unchecked(
-                        PictureType::CoverFront,
-                        Some(MimeType::Jpeg),
-                        None,
-                        bytes.to_vec(),
-                    );
-                    tag.push_picture(picture);
-                }
-            }
-        }
-
-        let _ = tagged_file.save_to_path(&target_path);
-    }
+    tag_downloaded_file(
+        &target_path,
+        &title,
+        &artist,
+        &_album,
+        &_cover_art,
+        url.as_deref(),
+        provider.as_deref(),
+    ).await;
 
     Ok(target_path.to_string_lossy().to_string())
 }
@@ -1804,6 +2369,100 @@ async fn save_track_metadata(file_path: String, metadata: TrackMetadata) -> Resu
     tagged
         .save_to_path(path)
         .map_err(|e| format!("Failed to save metadata: {}", e))
+}
+
+fn sanitize_lyrics_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect()
+}
+
+#[tauri::command]
+fn save_word_lyrics(
+    app_handle: tauri::AppHandle,
+    file_path: String,
+    track_id: String,
+    content: String,
+) -> Result<(), String> {
+    // 1. Save sidecar .elrc alongside audio file if local
+    let path = Path::new(&file_path);
+    if path.is_file() {
+        let sidecar_path = path.with_extension("elrc");
+        let _ = fs::write(&sidecar_path, &content);
+    }
+
+    // 2. Also save into dedicated WordLyrics directory
+    if let Ok(audio_dir) = app_handle.path().audio_dir() {
+        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
+        let _ = fs::create_dir_all(&lyrics_dir);
+        let filename = format!("{}.elrc", sanitize_lyrics_filename(&track_id));
+        let app_file = lyrics_dir.join(filename);
+        let _ = fs::write(app_file, &content);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn load_word_lyrics(
+    app_handle: tauri::AppHandle,
+    file_path: String,
+    track_id: String,
+) -> Result<Option<String>, String> {
+    // 1. Check local sidecar (.elrc)
+    let path = Path::new(&file_path);
+    if path.is_file() {
+        let sidecar_path = path.with_extension("elrc");
+        if sidecar_path.is_file() {
+            if let Ok(content) = fs::read_to_string(&sidecar_path) {
+                if !content.trim().is_empty() {
+                    return Ok(Some(content));
+                }
+            }
+        }
+    }
+
+    // 2. Check app storage WordLyrics directory
+    if let Ok(audio_dir) = app_handle.path().audio_dir() {
+        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
+        let filename = format!("{}.elrc", sanitize_lyrics_filename(&track_id));
+        let app_file = lyrics_dir.join(filename);
+        if app_file.is_file() {
+            if let Ok(content) = fs::read_to_string(app_file) {
+                if !content.trim().is_empty() {
+                    return Ok(Some(content));
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+fn delete_word_lyrics(
+    app_handle: tauri::AppHandle,
+    file_path: String,
+    track_id: String,
+) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    if path.is_file() {
+        let sidecar_path = path.with_extension("elrc");
+        if sidecar_path.exists() {
+            let _ = fs::remove_file(sidecar_path);
+        }
+    }
+
+    if let Ok(audio_dir) = app_handle.path().audio_dir() {
+        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
+        let filename = format!("{}.elrc", sanitize_lyrics_filename(&track_id));
+        let app_file = lyrics_dir.join(filename);
+        if app_file.exists() {
+            let _ = fs::remove_file(app_file);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -2350,30 +3009,150 @@ fn handle_request(request: tiny_http::Request) {
     }
 }
 
+fn ms_to_lrc_tag(ms: u64) -> String {
+    let total_seconds = ms / 1000;
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    let hundredths = (ms % 1000) / 10;
+    format!("{:02}:{:02}.{:02}", minutes, seconds, hundredths)
+}
+
+fn convert_netease_yrc_to_elrc(yrc_raw: &str) -> Option<String> {
+    let line_re = regex::Regex::new(r#"^\[(\d+),(\d+)\](.*)$"#).ok()?;
+    let word_re = regex::Regex::new(r#"\((\d+),(\d+)(?:,\d+)?\)\s*([^\(]+)"#).ok()?;
+
+    let mut result_lines = Vec::new();
+
+    for raw_line in yrc_raw.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(caps) = line_re.captures(trimmed) {
+            let line_start_ms: u64 = caps[1].parse().unwrap_or(0);
+            let rest = &caps[3];
+
+            // Skip 0ms credits lines (producer, composer, writer info)
+            if line_start_ms == 0 && (rest.contains("制作人") || rest.contains("作词") || rest.contains("作曲") || rest.contains("编曲") || rest.contains(" : ")) {
+                continue;
+            }
+
+            let mut word_parts = Vec::new();
+            for wcaps in word_re.captures_iter(rest) {
+                let word_start_ms: u64 = wcaps[1].parse().unwrap_or(line_start_ms);
+                let word_text = wcaps[3].trim();
+                if !word_text.is_empty() {
+                    word_parts.push(format!("<{}> {}", ms_to_lrc_tag(word_start_ms), word_text));
+                }
+            }
+
+            if !word_parts.is_empty() {
+                result_lines.push(format!(
+                    "[{}] {}",
+                    ms_to_lrc_tag(line_start_ms),
+                    word_parts.join(" ")
+                ));
+            }
+        }
+    }
+
+    if result_lines.is_empty() {
+        None
+    } else {
+        Some(result_lines.join("\n"))
+    }
+}
+
 #[tauri::command]
 async fn fetch_lyrics(query: String) -> Result<Option<String>, String> {
-    let url = format!(
-        "https://lrclib.net/api/search?q={}",
-        urlencoding::encode(&query)
+    let clean_query = query
+        .replace('·', " ")
+        .replace('•', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    // 1. Check for word-by-word synced lyrics (YRC) first
+    let netease_search_url = format!(
+        "https://music.163.com/api/cloudsearch/pc?s={}&type=1&offset=0&limit=3",
+        urlencoding::encode(&clean_query)
     );
 
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(url)
+    if let Ok(resp) = client
+        .get(&netease_search_url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .header("Referer", "https://music.163.com")
+        .send()
+        .await
+    {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(songs) = data["result"]["songs"].as_array() {
+                if let Some(first_song) = songs.first() {
+                    if let Some(song_id) = first_song["id"].as_i64() {
+                        let lyric_url = format!(
+                            "https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1&yv=1",
+                            song_id
+                        );
+                        if let Ok(lyric_resp) = client
+                            .get(&lyric_url)
+                            .header("User-Agent", "Mozilla/5.0")
+                            .header("Referer", "https://music.163.com")
+                            .send()
+                            .await
+                        {
+                            if let Ok(lyric_data) = lyric_resp.json::<serde_json::Value>().await {
+                                // Priority 1: Word-by-word synced lyrics (yrc)
+                                if let Some(yrc_raw) = lyric_data["yrc"]["lyric"].as_str() {
+                                    if let Some(converted_elrc) = convert_netease_yrc_to_elrc(yrc_raw) {
+                                        return Ok(Some(converted_elrc));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Check LRCLIB for line-by-line synced lyrics (or plain text fallback)
+    let lrclib_url = format!(
+        "https://lrclib.net/api/search?q={}",
+        urlencoding::encode(&clean_query)
+    );
+
+    if let Ok(resp) = client
+        .get(&lrclib_url)
         .header("User-Agent", "Mewsic/0.7.2 (https://github.com/xeoniii/Mewsic)")
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+    {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(results) = data.as_array() {
+                if !results.is_empty() {
+                    let best = &results[0];
+                    let synced = best.get("syncedLyrics").and_then(|v| v.as_str());
+                    let plain = best.get("plainLyrics").and_then(|v| v.as_str());
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+                    if let Some(s) = synced {
+                        if !s.trim().is_empty() {
+                            return Ok(Some(s.to_string()));
+                        }
+                    }
 
-    if let Some(results) = data.as_array() {
-        if !results.is_empty() {
-            let best = &results[0];
-            let synced = best.get("syncedLyrics").and_then(|v| v.as_str());
-            let plain = best.get("plainLyrics").and_then(|v| v.as_str());
-            
-            return Ok(synced.or(plain).map(|s| s.to_string()));
+                    if let Some(p) = plain {
+                        if !p.trim().is_empty() {
+                            return Ok(Some(p.to_string()));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2411,9 +3190,13 @@ fn minimize_window(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 fn toggle_maximize_window(window: tauri::Window) -> Result<(), String> {
     if window.is_maximized().unwrap_or(false) {
-        window.unmaximize().map_err(|e| e.to_string())
+        window.unmaximize().map_err(|e| e.to_string())?;
+        let _ = window.emit("maximized-changed", false);
+        Ok(())
     } else {
-        window.maximize().map_err(|e| e.to_string())
+        window.maximize().map_err(|e| e.to_string())?;
+        let _ = window.emit("maximized-changed", true);
+        Ok(())
     }
 }
 
@@ -2816,10 +3599,10 @@ async fn import_spotify_playlist(
                 let comment = format!("mws-id:{}\nmws-provider:spotify", spotify_uri);
                 tag.insert_text(ItemKey::Comment, comment);
 
-                // Fetch and embed lyrics
+                // Fetch and embed lyrics (word-by-word into .elrc sidecar, clean line LRC into MP3 tag)
                 let search_q = format!("{} {}", artist, title);
                 if let Ok(Some(lyrics_text)) = fetch_lyrics(search_q).await {
-                    tag.insert_text(ItemKey::Lyrics, lyrics_text);
+                    handle_downloaded_lyrics(&target_path, &lyrics_text, tag);
                 }
 
                 // Embed cover art
@@ -3124,6 +3907,9 @@ fn main() {
             start_oauth_server,
             fetch_spotify_playlist,
             import_spotify_playlist,
+            save_word_lyrics,
+            load_word_lyrics,
+            delete_word_lyrics,
         ])
         .on_window_event(|window, event| {
             match event {
@@ -3134,6 +3920,8 @@ fn main() {
                     // Emit a custom event when window state might have changed
                     let is_full = window.is_fullscreen().unwrap_or(false);
                     let _ = window.emit("fullscreen-changed", is_full);
+                    let is_max = window.is_maximized().unwrap_or(false);
+                    let _ = window.emit("maximized-changed", is_max);
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     let app_state = window.state::<AppState>();
