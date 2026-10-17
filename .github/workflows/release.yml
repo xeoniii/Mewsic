@@ -32,6 +32,72 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Ensure release draft exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
+
+      # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
+      - name: Build Slim app (Windows NSIS without bundled binaries)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis
+
+      - name: Prepare Windows Slim artifacts
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          SETUP_EXE=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*setup.exe' | head -n1)
+          SETUP_SIG=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*setup.exe.sig' | head -n1)
+          SETUP_ZIP=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*.nsis.zip' | head -n1)
+          ZIP_SIG=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*.nsis.zip.sig' | head -n1)
+
+          if [ -n "$SETUP_EXE" ] && [ -f "$SETUP_EXE" ]; then
+            cp "$SETUP_EXE" release-artifacts/Mewsic-Setup-Slim.exe
+          fi
+          if [ -n "$SETUP_SIG" ] && [ -f "$SETUP_SIG" ]; then
+            cp "$SETUP_SIG" release-artifacts/Mewsic-Setup-Slim.exe.sig
+          fi
+          if [ -n "$SETUP_ZIP" ] && [ -f "$SETUP_ZIP" ]; then
+            cp "$SETUP_ZIP" release-artifacts/Mewsic-Setup-Slim.nsis.zip
+            if [ -n "$ZIP_SIG" ] && [ -f "$ZIP_SIG" ]; then
+              cp "$ZIP_SIG" release-artifacts/Mewsic-Setup-Slim.nsis.zip.sig
+            fi
+          fi
+
+          mkdir -p updater-meta
+          SIG_FILE=""
+          UPDATER_FILE=""
+          if [ -f "release-artifacts/Mewsic-Setup-Slim.nsis.zip.sig" ]; then
+            SIG_FILE="release-artifacts/Mewsic-Setup-Slim.nsis.zip.sig"
+            UPDATER_FILE="Mewsic-Setup-Slim.nsis.zip"
+          elif [ -f "release-artifacts/Mewsic-Setup-Slim.exe.sig" ]; then
+            SIG_FILE="release-artifacts/Mewsic-Setup-Slim.exe.sig"
+            UPDATER_FILE="Mewsic-Setup-Slim.exe"
+          fi
+
+          if [ -n "$SIG_FILE" ]; then
+            node -e '
+              const fs = require("fs");
+              const sig = fs.readFileSync(process.argv[1], "utf8").trim();
+              const meta = {
+                platform: "windows-x86_64",
+                url: `https://github.com/${process.env.REPO}/releases/download/${process.env.TAG}/${process.argv[2]}`,
+                signature: sig
+              };
+              fs.writeFileSync("updater-meta/windows-x86_64.json", JSON.stringify(meta, null, 2));
+            ' "$SIG_FILE" "$UPDATER_FILE"
+          fi
+
+      # 2. Download binaries and build Full version
       - name: Download bundled yt-dlp and ffmpeg binaries
         shell: bash
         run: |
@@ -39,39 +105,53 @@ jobs:
           curl -L -o src-tauri/bin/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
           curl -L -o src-tauri/bin/ffmpeg.exe https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64
 
-      - name: Build the app (Windows MSI)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Full app (Windows NSIS with bundled binaries)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Mewsic v__VERSION__'
-          releaseBody: 'See the assets below to download the latest version of Mewsic.'
-          releaseDraft: true
-          prerelease: false
-          args: '--target x86_64-pc-windows-msvc --bundles msi'
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis
 
-      - name: Rename Windows artifact to static name
+      - name: Prepare Windows Full artifact
         shell: bash
         run: |
-          MSI=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi' | head -n1)
-          ZIP=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi.zip' | head -n1)
-          SIG=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi.zip.sig' | head -n1)
-          echo "Found MSI: $MSI"
-          cp "$MSI" "Mewsic-Setup.msi"
-          if [ -n "$ZIP" ]; then cp "$ZIP" "Mewsic-Setup.msi.zip"; fi
-          if [ -n "$SIG" ]; then cp "$SIG" "Mewsic-Setup.msi.zip.sig"; fi
+          SETUP_EXE=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*setup.exe' | head -n1)
+          if [ -n "$SETUP_EXE" ] && [ -f "$SETUP_EXE" ]; then
+            cp "$SETUP_EXE" release-artifacts/Mewsic-Setup.exe
+          fi
 
-      - name: Upload static artifacts to release
+      # 3. Upload only static artifacts and delete versioned assets
+      - name: Upload static Windows artifacts to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi" --repo "${{ github.repository }}" --clobber
-          if [ -f "Mewsic-Setup.msi.zip" ]; then gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi.zip" --repo "${{ github.repository }}" --clobber; fi
-          if [ -f "Mewsic-Setup.msi.zip.sig" ]; then gh release upload "${{ github.ref_name }}" "Mewsic-Setup.msi.zip.sig" --repo "${{ github.repository }}" --clobber; fi
+          for f in release-artifacts/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f..."
+              gh release upload "${{ github.ref_name }}" "$f" --repo "${{ github.repository }}" --clobber
+            fi
+          done
+
+      - name: Clean up versioned assets from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
+            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
+            while read -r asset; do
+              echo "Deleting versioned asset: $asset"
+              gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
+            done
+
+      - name: Upload updater metadata artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-windows-x86_64
+          path: updater-meta/*.json
+          if-no-files-found: ignore
 
   # ─── macOS (ARM64) ─────────────────────────────────────────────────────────
   release-macos-arm:
@@ -102,6 +182,54 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Ensure release draft exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
+
+      # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
+      - name: Build Slim app (macOS ARM64 without bundled binaries)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+        run: npm run tauri build -- --target aarch64-apple-darwin --bundles dmg,app
+
+      - name: Prepare macOS ARM64 Slim artifacts
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release-artifacts
+          DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name '*.dmg' | head -n1)
+          APP_TAR=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name '*.app.tar.gz' | head -n1)
+          APP_SIG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name '*.app.tar.gz.sig' | head -n1)
+
+          if [ -n "$DMG" ] && [ -f "$DMG" ]; then
+            cp "$DMG" release-artifacts/Mewsic-arm64-Slim.dmg
+          fi
+          if [ -n "$APP_TAR" ] && [ -f "$APP_TAR" ]; then
+            cp "$APP_TAR" release-artifacts/Mewsic-arm64-Slim.app.tar.gz
+          fi
+          if [ -n "$APP_SIG" ] && [ -f "$APP_SIG" ]; then
+            cp "$APP_SIG" release-artifacts/Mewsic-arm64-Slim.app.tar.gz.sig
+            mkdir -p updater-meta
+            node -e '
+              const fs = require("fs");
+              const sig = fs.readFileSync(process.argv[1], "utf8").trim();
+              const meta = {
+                platform: "darwin-aarch64",
+                url: `https://github.com/${process.env.REPO}/releases/download/${process.env.TAG}/Mewsic-arm64-Slim.app.tar.gz`,
+                signature: sig
+              };
+              fs.writeFileSync("updater-meta/darwin-aarch64.json", JSON.stringify(meta, null, 2));
+            ' "$APP_SIG"
+          fi
+
+      # 2. Download binaries and build Full version
       - name: Download bundled yt-dlp and ffmpeg binaries
         run: |
           mkdir -p src-tauri/bin
@@ -109,36 +237,51 @@ jobs:
           curl -L -o src-tauri/bin/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-darwin-arm64
           chmod +x src-tauri/bin/*
 
-      - name: Build the app (macOS ARM64)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Full app (macOS ARM64 with bundled binaries)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           MACOSX_DEPLOYMENT_TARGET: "13.0"
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Mewsic v__VERSION__'
-          releaseBody: 'See the assets below to download the latest version of Mewsic.'
-          releaseDraft: true
-          prerelease: false
-          args: '--target aarch64-apple-darwin --bundles dmg,app'
+        run: npm run tauri build -- --target aarch64-apple-darwin --bundles dmg,app
 
-      - name: Rename macOS ARM64 artifacts to static names
+      - name: Prepare macOS ARM64 Full artifact
         run: |
           DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name '*.dmg' | head -n1)
-          APP_TAR=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name '*.app.tar.gz' | head -n1)
-          echo "Found DMG: $DMG"
-          echo "Found APP tar: $APP_TAR"
-          cp "$DMG"     "Mewsic-arm64.dmg"
-          cp "$APP_TAR" "Mewsic-arm64.app.tar.gz"
+          if [ -n "$DMG" ] && [ -f "$DMG" ]; then
+            cp "$DMG" release-artifacts/Mewsic-arm64.dmg
+          fi
 
+      # 3. Upload only static artifacts and delete versioned assets
       - name: Upload static macOS ARM64 artifacts to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" "Mewsic-arm64.dmg" --repo "${{ github.repository }}" --clobber
-          gh release upload "${{ github.ref_name }}" "Mewsic-arm64.app.tar.gz" --repo "${{ github.repository }}" --clobber
+          for f in release-artifacts/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f..."
+              gh release upload "${{ github.ref_name }}" "$f" --repo "${{ github.repository }}" --clobber
+            fi
+          done
+
+      - name: Clean up versioned assets from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
+            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
+            while read -r asset; do
+              echo "Deleting versioned asset: $asset"
+              gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
+            done
+
+      - name: Upload updater metadata artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-darwin-aarch64
+          path: updater-meta/*.json
+          if-no-files-found: ignore
 
   # ─── macOS (x86_64) ────────────────────────────────────────────────────────
   release-macos-x64:
@@ -169,6 +312,54 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Ensure release draft exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
+
+      # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
+      - name: Build Slim app (macOS x86_64 without bundled binaries)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+        run: npm run tauri build -- --target x86_64-apple-darwin --bundles dmg,app
+
+      - name: Prepare macOS x86_64 Slim artifacts
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release-artifacts
+          DMG=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -name '*.dmg' | head -n1)
+          APP_TAR=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/macos -name '*.app.tar.gz' | head -n1)
+          APP_SIG=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/macos -name '*.app.tar.gz.sig' | head -n1)
+
+          if [ -n "$DMG" ] && [ -f "$DMG" ]; then
+            cp "$DMG" release-artifacts/Mewsic-x64-Slim.dmg
+          fi
+          if [ -n "$APP_TAR" ] && [ -f "$APP_TAR" ]; then
+            cp "$APP_TAR" release-artifacts/Mewsic-x64-Slim.app.tar.gz
+          fi
+          if [ -n "$APP_SIG" ] && [ -f "$APP_SIG" ]; then
+            cp "$APP_SIG" release-artifacts/Mewsic-x64-Slim.app.tar.gz.sig
+            mkdir -p updater-meta
+            node -e '
+              const fs = require("fs");
+              const sig = fs.readFileSync(process.argv[1], "utf8").trim();
+              const meta = {
+                platform: "darwin-x86_64",
+                url: `https://github.com/${process.env.REPO}/releases/download/${process.env.TAG}/Mewsic-x64-Slim.app.tar.gz`,
+                signature: sig
+              };
+              fs.writeFileSync("updater-meta/darwin-x86_64.json", JSON.stringify(meta, null, 2));
+            ' "$APP_SIG"
+          fi
+
+      # 2. Download binaries and build Full version
       - name: Download bundled yt-dlp and ffmpeg binaries
         run: |
           mkdir -p src-tauri/bin
@@ -176,36 +367,51 @@ jobs:
           curl -L -o src-tauri/bin/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-darwin-x64
           chmod +x src-tauri/bin/*
 
-      - name: Build the app (macOS x86_64)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Full app (macOS x86_64 with bundled binaries)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           MACOSX_DEPLOYMENT_TARGET: "13.0"
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Mewsic v__VERSION__'
-          releaseBody: 'See the assets below to download the latest version of Mewsic.'
-          releaseDraft: true
-          prerelease: false
-          args: '--target x86_64-apple-darwin --bundles dmg,app'
+        run: npm run tauri build -- --target x86_64-apple-darwin --bundles dmg,app
 
-      - name: Rename macOS x86_64 artifacts to static names
+      - name: Prepare macOS x86_64 Full artifact
         run: |
           DMG=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -name '*.dmg' | head -n1)
-          APP_TAR=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/macos -name '*.app.tar.gz' | head -n1)
-          echo "Found DMG: $DMG"
-          echo "Found APP tar: $APP_TAR"
-          cp "$DMG"     "Mewsic-x64.dmg"
-          cp "$APP_TAR" "Mewsic-x64.app.tar.gz"
+          if [ -n "$DMG" ] && [ -f "$DMG" ]; then
+            cp "$DMG" release-artifacts/Mewsic-x64.dmg
+          fi
 
+      # 3. Upload only static artifacts and delete versioned assets
       - name: Upload static macOS x86_64 artifacts to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" "Mewsic-x64.dmg" --repo "${{ github.repository }}" --clobber
-          gh release upload "${{ github.ref_name }}" "Mewsic-x64.app.tar.gz" --repo "${{ github.repository }}" --clobber
+          for f in release-artifacts/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f..."
+              gh release upload "${{ github.ref_name }}" "$f" --repo "${{ github.repository }}" --clobber
+            fi
+          done
+
+      - name: Clean up versioned assets from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
+            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
+            while read -r asset; do
+              echo "Deleting versioned asset: $asset"
+              gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
+            done
+
+      - name: Upload updater metadata artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-darwin-x86_64
+          path: updater-meta/*.json
+          if-no-files-found: ignore
 
   # ─── Linux (DEB + RPM) ─────────────────────────────────────────────────────
   release-linux:
@@ -241,6 +447,57 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Ensure release draft exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
+
+      # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
+      - name: Build Slim app (Linux DEB, RPM, AppImage)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --bundles deb,rpm,appimage
+
+      - name: Prepare Linux Slim artifacts
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release-artifacts
+          DEB=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -n1)
+          RPM=$(find src-tauri/target/release/bundle/rpm -name '*.rpm' | head -n1)
+          APPIMAGE_TAR=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage.tar.gz' 2>/dev/null | head -n1)
+          APPIMAGE_SIG=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
+
+          if [ -n "$DEB" ] && [ -f "$DEB" ]; then
+            cp "$DEB" release-artifacts/Mewsic-Setup-Slim.deb
+          fi
+          if [ -n "$RPM" ] && [ -f "$RPM" ]; then
+            cp "$RPM" release-artifacts/Mewsic-Setup-Slim.rpm
+          fi
+          if [ -n "$APPIMAGE_TAR" ] && [ -f "$APPIMAGE_TAR" ]; then
+            cp "$APPIMAGE_TAR" release-artifacts/Mewsic-Setup-Slim.AppImage.tar.gz
+          fi
+          if [ -n "$APPIMAGE_SIG" ] && [ -f "$APPIMAGE_SIG" ]; then
+            cp "$APPIMAGE_SIG" release-artifacts/Mewsic-Setup-Slim.AppImage.tar.gz.sig
+            mkdir -p updater-meta
+            node -e '
+              const fs = require("fs");
+              const sig = fs.readFileSync(process.argv[1], "utf8").trim();
+              const meta = {
+                platform: "linux-x86_64",
+                url: `https://github.com/${process.env.REPO}/releases/download/${process.env.TAG}/Mewsic-Setup-Slim.AppImage.tar.gz`,
+                signature: sig
+              };
+              fs.writeFileSync("updater-meta/linux-x86_64.json", JSON.stringify(meta, null, 2));
+            ' "$APPIMAGE_SIG"
+          fi
+
+      # 2. Download binaries and build Full version
       - name: Download bundled yt-dlp and ffmpeg binaries
         run: |
           mkdir -p src-tauri/bin
@@ -248,33 +505,128 @@ jobs:
           curl -L -o src-tauri/bin/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-linux-x64
           chmod +x src-tauri/bin/*
 
-      - name: Build the app (DEB + RPM)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Full app (Linux DEB, RPM with bundled binaries)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Mewsic v__VERSION__'
-          releaseBody: 'See the assets below to download the latest version of Mewsic.'
-          releaseDraft: true
-          prerelease: false
-          args: '--bundles deb,rpm'
+        run: npm run tauri build -- --bundles deb,rpm
 
-      - name: Rename Linux artifacts to static names
+      - name: Prepare Linux Full artifacts
         run: |
           DEB=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -n1)
           RPM=$(find src-tauri/target/release/bundle/rpm -name '*.rpm' | head -n1)
-          echo "Found DEB: $DEB"
-          echo "Found RPM: $RPM"
-          cp "$DEB" "Mewsic-Setup.deb"
-          cp "$RPM" "Mewsic-Setup.rpm"
+          if [ -n "$DEB" ] && [ -f "$DEB" ]; then
+            cp "$DEB" release-artifacts/Mewsic-Setup.deb
+          fi
+          if [ -n "$RPM" ] && [ -f "$RPM" ]; then
+            cp "$RPM" release-artifacts/Mewsic-Setup.rpm
+          fi
 
+      # 3. Upload only static artifacts and delete versioned assets
       - name: Upload static Linux artifacts to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" "Mewsic-Setup.deb" --repo "${{ github.repository }}" --clobber
-          gh release upload "${{ github.ref_name }}" "Mewsic-Setup.rpm" --repo "${{ github.repository }}" --clobber
+          for f in release-artifacts/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f..."
+              gh release upload "${{ github.ref_name }}" "$f" --repo "${{ github.repository }}" --clobber
+            fi
+          done
 
+      - name: Clean up versioned assets from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
+            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
+            while read -r asset; do
+              echo "Deleting versioned asset: $asset"
+              gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
+            done
+
+      - name: Upload updater metadata artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-linux-x86_64
+          path: updater-meta/*.json
+          if-no-files-found: ignore
+
+  # ─── Finalize Updater Manifest (latest.json) ───────────────────────────────
+  publish-updater:
+    needs: [release-windows, release-macos-arm, release-macos-x64, release-linux]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download updater metadata
+        uses: actions/download-artifact@v4
+        with:
+          path: updater-meta
+          pattern: updater-*
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Construct and upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+
+            const metaDir = "updater-meta";
+            const platforms = {};
+
+            if (fs.existsSync(metaDir)) {
+              const files = fs.readdirSync(metaDir);
+              for (const file of files) {
+                if (file.endsWith(".json")) {
+                  try {
+                    const data = JSON.parse(fs.readFileSync(path.join(metaDir, file), "utf8"));
+                    if (data.platform && data.url && data.signature) {
+                      platforms[data.platform] = {
+                        url: data.url,
+                        signature: data.signature.trim()
+                      };
+                    }
+                  } catch (e) {
+                    console.error("Error parsing", file, e);
+                  }
+                }
+              }
+            }
+
+            const manifest = {
+              version: process.env.VERSION,
+              notes: "See the assets below to download the latest version of Mewsic.",
+              pub_date: process.env.PUB_DATE,
+              platforms
+            };
+
+            fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2));
+            console.log("Generated latest.json:\n", JSON.stringify(manifest, null, 2));
+          '
+
+          gh release upload "${{ github.ref_name }}" "latest.json" --repo "${{ github.repository }}" --clobber
+
+      - name: Final sweep to delete any versioned assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
+            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
+            while read -r asset; do
+              echo "Deleting versioned asset: $asset"
+              gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
+            done

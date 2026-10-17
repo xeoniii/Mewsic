@@ -36,6 +36,7 @@ const CoverArt = memo(function CoverArt({
   const lowEndMode = useStore(s => s.lowEndMode);
   
   useEffect(() => {
+    setImgError(false);
     if (track.coverArt && (track.coverArt.startsWith("http://") || track.coverArt.startsWith("https://") || track.coverArt.startsWith("data:"))) {
       setCoverUrl(track.coverArt);
       return;
@@ -43,7 +44,10 @@ const CoverArt = memo(function CoverArt({
 
     let cancelled = false;
     getCoverArt(track.filePath, size, lowEndMode).then((url) => {
-      if (!cancelled) setCoverUrl(url);
+      if (!cancelled) {
+        setCoverUrl(url);
+        setImgError(false);
+      }
     });
     return () => { cancelled = true; };
   }, [track.filePath, track.coverArt, size, lowEndMode]);
@@ -56,7 +60,6 @@ const CoverArt = memo(function CoverArt({
         className={`w-full h-full object-cover ${className}`}
         onError={() => setImgError(true)}
         draggable={false}
-        loading="lazy"
       />
     );
   }

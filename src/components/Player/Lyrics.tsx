@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import { useStore } from "../../store";
+import { audio } from "../../utils/audioEngine";
 
 export interface LyricWord {
   text: string;
@@ -13,47 +14,93 @@ export interface LyricLine {
 }
 
 export function parseLRC(text: string): LyricLine[] {
+  if (!text) return [];
   const lines: LyricLine[] = [];
   const rawLines = text.split(/\r?\n/);
-  const lineRegex = /^\[(\d+):(\d{2})(?:\.(\d+))?\](.*)$/;
-  const wordTagRegex = /<(\d+):(\d{2})(?:\.(\d+))?>\s*([^<]*)/g;
+
+  // Matches either [mm:ss.xx] or <mm:ss.xx> or [mm:ss] or [mm:ss:xx] or [ms] at line start
+  const lineStartRegex = /^(?:\[(\d+):(\d{2})(?:[.:](\d+))?\]|<(\d+):(\d{2})(?:[.:](\d+))?>|\[(\d+)\])(.*)$/;
 
   for (const rawLine of rawLines) {
-    const lineMatch = lineRegex.exec(rawLine.trim());
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+
+    const lineMatch = lineStartRegex.exec(trimmed);
     if (!lineMatch) continue;
 
-    const minutes = parseInt(lineMatch[1], 10);
-    const seconds = parseInt(lineMatch[2], 10);
-    const msStr = lineMatch[3] || "0";
-    const ms = parseInt(msStr.padEnd(3, "0").slice(0, 3), 10);
-    const lineTime = minutes * 60 + seconds + ms / 1000;
-    const lineRest = lineMatch[4].trim();
+    let lineTime = 0;
+    if (lineMatch[1] !== undefined) {
+      // [mm:ss.xx]
+      const min = parseInt(lineMatch[1], 10);
+      const sec = parseInt(lineMatch[2], 10);
+      const msStr = lineMatch[3] || "0";
+      const ms = parseInt(msStr.padEnd(3, "0").slice(0, 3), 10);
+      lineTime = min * 60 + sec + ms / 1000;
+    } else if (lineMatch[4] !== undefined) {
+      // <mm:ss.xx>
+      const min = parseInt(lineMatch[4], 10);
+      const sec = parseInt(lineMatch[5], 10);
+      const msStr = lineMatch[6] || "0";
+      const ms = parseInt(msStr.padEnd(3, "0").slice(0, 3), 10);
+      lineTime = min * 60 + sec + ms / 1000;
+    } else if (lineMatch[7] !== undefined) {
+      // [raw_ms]
+      lineTime = parseInt(lineMatch[7], 10) / 1000;
+    }
 
+    const lineRest = (lineMatch[8] ?? "").trim();
     if (!lineRest) continue;
 
-    // Check if there are word tags <mm:ss.xx>
-    const words: LyricWord[] = [];
-    let wordMatch: RegExpExecArray | null;
-    let hasWordTags = false;
+    // Check if line contains word tags: <mm:ss.xx>, [mm:ss.xx], or <raw_ms> or (raw_ms,dur)
+    const tokenRegex = /(?:<(\d+):(\d{2})(?:[.:](\d+))?(?:,\d+)?>|<(\d+)(?:,\d+)?>|\[(\d+):(\d{2})(?:[.:](\d+))?\]|\((\d+),(\d+)(?:,\d+)?\))|([^<>[\]()]+)/g;
 
-    while ((wordMatch = wordTagRegex.exec(lineRest)) !== null) {
-      hasWordTags = true;
-      const wMin = parseInt(wordMatch[1], 10);
-      const wSec = parseInt(wordMatch[2], 10);
-      const wMsStr = wordMatch[3] || "0";
-      const wMs = parseInt(wMsStr.padEnd(3, "0").slice(0, 3), 10);
-      const wTime = wMin * 60 + wSec + wMs / 1000;
-      const wText = wordMatch[4].trim();
-      if (wText) {
-        words.push({ time: wTime, text: wText });
+    const words: LyricWord[] = [];
+    let currentWordTime = lineTime;
+    let hasWordTiming = false;
+    let tokenMatch: RegExpExecArray | null;
+
+    while ((tokenMatch = tokenRegex.exec(lineRest)) !== null) {
+      if (tokenMatch[1] !== undefined) {
+        // <mm:ss.xx>
+        const min = parseInt(tokenMatch[1], 10);
+        const sec = parseInt(tokenMatch[2], 10);
+        const msStr = tokenMatch[3] || "0";
+        const ms = parseInt(msStr.padEnd(3, "0").slice(0, 3), 10);
+        currentWordTime = min * 60 + sec + ms / 1000;
+        hasWordTiming = true;
+      } else if (tokenMatch[4] !== undefined) {
+        // <raw_ms>
+        currentWordTime = parseInt(tokenMatch[4], 10) / 1000;
+        hasWordTiming = true;
+      } else if (tokenMatch[5] !== undefined) {
+        // [mm:ss.xx]
+        const min = parseInt(tokenMatch[5], 10);
+        const sec = parseInt(tokenMatch[6], 10);
+        const msStr = tokenMatch[7] || "0";
+        const ms = parseInt(msStr.padEnd(3, "0").slice(0, 3), 10);
+        currentWordTime = min * 60 + sec + ms / 1000;
+        hasWordTiming = true;
+      } else if (tokenMatch[8] !== undefined) {
+        // (start_ms, dur)
+        currentWordTime = parseInt(tokenMatch[8], 10) / 1000;
+        hasWordTiming = true;
+      } else if (tokenMatch[10] !== undefined) {
+        // Text chunk
+        const chunk = tokenMatch[10].trim();
+        if (chunk) {
+          const parts = chunk.split(/\s+/).filter(Boolean);
+          for (const p of parts) {
+            words.push({ text: p, time: currentWordTime });
+          }
+        }
       }
     }
 
-    if (hasWordTags && words.length > 0) {
-      const fullText = words.map(w => w.text).join(" ");
+    if (hasWordTiming && words.length > 0) {
+      const fullText = words.map((w) => w.text).join(" ");
       lines.push({ time: lineTime, text: fullText, words });
     } else {
-      const cleanText = lineRest.replace(/<[^>]+>/g, "").trim();
+      const cleanText = lineRest.replace(/<[^>]+>|\[[^\]]+\]|\([^)]+\)/g, "").trim().replace(/\s+/g, " ");
       if (cleanText) {
         lines.push({ time: lineTime, text: cleanText });
       }
@@ -147,7 +194,7 @@ export function Lyrics({
 
   const isSynced = useMemo(() => {
     if (!lyrics) return false;
-    return /\[\d+:\d{2}(?:\.\d+)?\]/.test(lyrics);
+    return /(?:\[\d+:\d{2}(?:[.:]\d+)?\]|<\d+:\d{2}(?:[.:]\d+)?>|\[\d+\])/.test(lyrics);
   }, [lyrics]);
 
   const parsedLyrics = useMemo<LyricLine[]>(() => {
@@ -158,57 +205,80 @@ export function Lyrics({
     return parseLRC(lyrics);
   }, [lyrics, isSynced]);
 
-  // High-performance direct DOM subscription to eliminate 20fps React re-renders on i3-4150
+  // High-performance 60fps/120fps RAF synchronization loop tracking sub-millisecond playback
   useEffect(() => {
-    currentTimeRef.current = useStore.getState().currentTime;
-    
-    const unsub = useStore.subscribe((state) => {
-      const time = state.currentTime;
-      currentTimeRef.current = time;
+    let animId: number;
 
-      // Update sync mode timer badge directly
+    const updateLyrics = () => {
+      // Sub-millisecond current playback position
+      const exactTime = audio.currentTime || useStore.getState().currentTime;
+      currentTimeRef.current = exactTime;
+
+      // Update sync mode timer badge if active
       if (isSyncMode && timeDisplayRef.current) {
-        const m = Math.floor(time / 60).toString().padStart(2, '0');
-        const s = Math.floor(time % 60).toString().padStart(2, '0');
-        const ms = Math.floor((time % 1) * 100).toString().padStart(2, '0');
+        const m = Math.floor(exactTime / 60).toString().padStart(2, "0");
+        const s = Math.floor(exactTime % 60).toString().padStart(2, "0");
+        const ms = Math.floor((exactTime % 1) * 100).toString().padStart(2, "0");
         timeDisplayRef.current.textContent = `${m}:${s}.${ms}`;
       }
 
-      // Update active index for playback mode smoothly
+      // Playback mode active line & word karaoke tracking
       if (!isSyncMode && parsedLyrics.length > 0 && isSynced) {
         let active = 0;
         for (let i = 0; i < parsedLyrics.length; i++) {
-          if (parsedLyrics[i].time <= time) {
+          if (parsedLyrics[i].time <= exactTime) {
             active = i;
           } else {
             break;
           }
         }
-        setActiveIndex(prev => prev !== active ? active : prev);
+        setActiveIndex((prev) => (prev !== active ? active : prev));
 
-        // Ultra high-performance word-by-word karaoke illumination directly on DOM with state-diffing
+        // Real-time word-by-word karaoke illumination directly on active line DOM elements
         if (activeRef.current) {
           const wordSpans = activeRef.current.querySelectorAll<HTMLSpanElement>("[data-word-time]");
-          for (let s = 0; s < wordSpans.length; s++) {
-            const span = wordSpans[s];
-            const wTime = parseFloat(span.dataset.wordTime || "-1");
-            if (wTime >= 0) {
-              const shouldBeSung = time >= wTime;
-              const isCurrentlySung = span.classList.contains("word-sung");
-              if (shouldBeSung && !isCurrentlySung) {
-                span.classList.add("word-sung");
-                span.classList.remove("word-unsung");
-              } else if (!shouldBeSung && isCurrentlySung) {
-                span.classList.remove("word-sung");
-                span.classList.add("word-unsung");
+          if (wordSpans.length > 0) {
+            // Find current active word index
+            let currentWordIdx = -1;
+            for (let s = 0; s < wordSpans.length; s++) {
+              const wTime = parseFloat(wordSpans[s].dataset.wordTime || "-1");
+              if (wTime >= 0 && exactTime >= wTime) {
+                currentWordIdx = s;
+              }
+            }
+
+            for (let s = 0; s < wordSpans.length; s++) {
+              const span = wordSpans[s];
+              const isPast = s < currentWordIdx;
+              const isCurrent = s === currentWordIdx;
+              const isFuture = s > currentWordIdx;
+
+              if (isCurrent) {
+                if (!span.classList.contains("word-current")) {
+                  span.classList.add("word-sung", "word-current");
+                  span.classList.remove("word-unsung");
+                }
+              } else if (isPast) {
+                if (!span.classList.contains("word-sung") || span.classList.contains("word-current")) {
+                  span.classList.add("word-sung");
+                  span.classList.remove("word-unsung", "word-current");
+                }
+              } else if (isFuture) {
+                if (!span.classList.contains("word-unsung")) {
+                  span.classList.add("word-unsung");
+                  span.classList.remove("word-sung", "word-current");
+                }
               }
             }
           }
         }
       }
-    });
-    
-    return unsub;
+
+      animId = requestAnimationFrame(updateLyrics);
+    };
+
+    animId = requestAnimationFrame(updateLyrics);
+    return () => cancelAnimationFrame(animId);
   }, [isSyncMode, parsedLyrics, isSynced]);
 
   // Handle butter-smooth 120fps spring scrolling without layout thrashing
@@ -478,35 +548,43 @@ export function Lyrics({
         .lyric-word {
           display: inline-block;
           cursor: pointer;
-          transform-origin: center bottom;
+          transform-origin: left bottom;
           transition: 
             color 0.16s ease-out,
             opacity 0.18s ease-out,
-            transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-            text-shadow 0.22s ease-out;
+            transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+            text-shadow 0.2s ease-out;
         }
 
         .lyric-word.word-sung {
           opacity: 1 !important;
-          color: ${isLight ? "#090d16" : "#ffffff"} !important;
-          transform: translate3d(0, 0, 0) scale(1.03) !important;
+          color: ${isLight ? "#0f172a" : "#ffffff"} !important;
+          transform: translate3d(0, 0, 0) scale(1) !important;
           text-shadow: ${
             isLight 
               ? "0 1px 2px rgba(0, 0, 0, 0.1)" 
-              : "0 0 16px rgba(255, 255, 255, 0.38), 0 0 32px rgba(255, 255, 255, 0.12)"
+              : "0 0 14px rgba(255, 255, 255, 0.4), 0 0 28px rgba(255, 255, 255, 0.15)"
           } !important;
         }
 
+        .lyric-word.word-current {
+          opacity: 1 !important;
+          color: var(--accent, #6366f1) !important;
+          font-weight: 900 !important;
+          transform: translate3d(0, -2px, 0) scale(1.08) !important;
+          text-shadow: 0 0 16px var(--accent-glow, rgba(99, 102, 241, 0.6)), 0 0 32px var(--accent-glow, rgba(99, 102, 241, 0.3)) !important;
+        }
+
         .lyric-word.word-unsung {
-          opacity: 0.32 !important;
-          color: ${isLight ? "#64748b" : "#94a3b8"} !important;
+          opacity: 0.28 !important;
+          color: ${isLight ? "#94a3b8" : "#64748b"} !important;
           transform: translate3d(0, 0, 0) scale(1) !important;
           text-shadow: none !important;
         }
 
         .lyric-word:hover {
           opacity: 0.9 !important;
-          transform: translate3d(0, -1px, 0) scale(1.05) !important;
+          transform: translate3d(0, -1px, 0) scale(1.04) !important;
         }
       `}</style>
       
@@ -552,9 +630,11 @@ export function Lyrics({
                     "font-size 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), line-height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.52s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.55s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease-out, filter 0.45s ease-out, text-shadow 0.45s ease-out",
                 }}
               >
-                {isActive && line.words && line.words.length > 0 ? (
+                {line.words && line.words.length > 0 ? (
                   line.words.map((w, wIdx) => {
-                    const isSung = currentTimeRef.current >= w.time;
+                    const isPastLine = isSynced && i < activeIndex;
+                    const isFutureLine = isSynced && i > activeIndex;
+                    const isSung = isPastLine || (isActive && currentTimeRef.current >= w.time);
                     return (
                       <span
                         key={wIdx}
@@ -566,7 +646,11 @@ export function Lyrics({
                           }
                         }}
                         className={`lyric-word mr-2.5 ${
-                          isSung ? "word-sung" : "word-unsung"
+                          isFutureLine
+                            ? "word-unsung"
+                            : isSung
+                            ? "word-sung"
+                            : "word-unsung"
                         }`}
                       >
                         {w.text}

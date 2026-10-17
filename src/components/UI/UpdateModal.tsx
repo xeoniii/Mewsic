@@ -9,11 +9,12 @@ import { getOSName } from "../../utils/tauriApi";
 interface UpdateModalProps {
   onClose: () => void;
   initialVersion?: string | null;
+  autoStart?: boolean;
 }
 
-export function UpdateModal({ onClose, initialVersion }: UpdateModalProps) {
+export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalProps) {
   const [status, setStatus] = useState<"checking" | "available" | "up-to-date" | "downloading" | "error" | "early-access">(
-    initialVersion ? "available" : "checking"
+    autoStart ? "downloading" : (initialVersion ? "available" : "checking")
   );
   const [newVersion, setNewVersion] = useState<string | null>(initialVersion ?? null);
   const [progress, setProgress] = useState(0);
@@ -25,8 +26,12 @@ export function UpdateModal({ onClose, initialVersion }: UpdateModalProps) {
   const isLinux = osName === "Linux";
 
   useEffect(() => {
-    performCheck();
-  }, []);
+    if (autoStart) {
+      handleInstall();
+    } else {
+      performCheck();
+    }
+  }, [autoStart]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -107,11 +112,10 @@ export function UpdateModal({ onClose, initialVersion }: UpdateModalProps) {
   };
 
   const handleInstall = async () => {
-    if (isLinux && newVersion) {
-      const baseUrl = `https://github.com/xeoniii/Mewsic/releases/download/v${newVersion}`;
+    if (isLinux) {
       const finalUrl = linuxPackageType === "deb" 
-        ? `${baseUrl}/mewsic_${newVersion}_amd64.deb`
-        : `${baseUrl}/mewsic-${newVersion}-1.x86_64.rpm`;
+        ? "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup-Slim.deb"
+        : "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup-Slim.rpm";
       
       try {
         await open(finalUrl);
@@ -125,9 +129,9 @@ export function UpdateModal({ onClose, initialVersion }: UpdateModalProps) {
     }
 
     try {
+      setStatus("downloading");
       const update = await check();
       if (update?.available) {
-        setStatus("downloading");
         let downloaded = 0;
         let contentLength = 0;
         
@@ -148,6 +152,8 @@ export function UpdateModal({ onClose, initialVersion }: UpdateModalProps) {
         });
         
         await relaunch();
+      } else {
+        setStatus("up-to-date");
       }
     } catch (err) {
       console.error(err);

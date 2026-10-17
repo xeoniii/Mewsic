@@ -66,6 +66,7 @@ const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
   const firstTrack = playlistTracks[0];
 
   useEffect(() => {
+    setImgError(false);
     if (playlist.coverArt) {
       setCoverUrl(playlist.coverArt);
       return;
@@ -77,7 +78,10 @@ const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
       }
       let cancelled = false;
       getCoverArt(firstTrack.filePath, 300, lowEndMode).then((url) => {
-        if (!cancelled && url) setCoverUrl(url);
+        if (!cancelled && url) {
+          setCoverUrl(url);
+          setImgError(false);
+        }
       });
       return () => { cancelled = true; };
     }
@@ -96,7 +100,6 @@ const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             onError={() => setImgError(true)}
             draggable={false}
-            loading="lazy"
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-surface-overlay text-text-muted group-hover:text-accent transition-colors">

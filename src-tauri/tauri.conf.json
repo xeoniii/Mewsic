@@ -13,13 +13,18 @@
     "active": true,
     "category": "Music",
     "targets": [
-      "msi",
       "nsis",
       "deb",
       "rpm",
       "dmg",
       "app"
     ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "template": "windows/installer.nsi"
+      }
+    },
     "resources": [
       "bin/*"
     ],
@@ -163,7 +168,10 @@
       "endpoints": [
         "https://github.com/xeoniii/Mewsic/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMTQ3Qzg3QzhDQzc2NEYKUldSUGRzekloM3dVczA5ZE4xd0J2N0FJMWlIRjhaZ0ppb1F5czU3VForU092REVzR0dDbkMzNVIK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMTQ3Qzg3QzhDQzc2NEYKUldSUGRzekloM3dVczA5ZE4xd0J2N0FJMWlIRjhaZ0ppb1F5czU3VForU092REVzR0dDbkMzNVIK",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

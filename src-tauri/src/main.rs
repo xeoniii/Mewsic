@@ -276,7 +276,8 @@ pub struct HarbourState {
 }
 
 static COVERS_CACHE_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-// Simple in-memory cache for recent thumbnail requests to avoid disk I/O and re-decoding
+static COVER_MEM_CACHE: Mutex<Option<std::collections::HashMap<String, Vec<u8>>>> = Mutex::new(None);
+static WORD_LYRICS_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -339,8 +340,8 @@ fn parse_track(path: &Path) -> Result<Track, String> {
     };
 
     let elrc_path = path.with_extension("elrc");
-    let word_lyrics: Option<String> = if elrc_path.is_file() {
-        fs::read_to_string(elrc_path).ok().filter(|s| !s.trim().is_empty())
+    let mut word_lyrics: Option<String> = if elrc_path.is_file() {
+        fs::read_to_string(&elrc_path).ok().filter(|s| !s.trim().is_empty())
     } else {
         None
     };
@@ -387,6 +388,43 @@ fn parse_track(path: &Path) -> Result<Track, String> {
         file_name.clone()
     };
     let id = format!("{:x}", hash_string(&id_seed));
+
+    // If word_lyrics wasn't co-located with audio, check central WordLyrics storage
+    if word_lyrics.is_none() {
+        if let Ok(lock) = WORD_LYRICS_DIR.lock() {
+            if let Some(ref lyrics_dir) = *lock {
+                let id_file = lyrics_dir.join(format!("{}.elrc", sanitize_lyrics_filename(&id)));
+                if id_file.is_file() {
+                    word_lyrics = fs::read_to_string(&id_file).ok().filter(|s| !s.trim().is_empty());
+                } else {
+                    let stem = stem_from_path(path);
+                    let stem_file = lyrics_dir.join(format!("{}.elrc", sanitize_lyrics_filename(&stem)));
+                    if stem_file.is_file() {
+                        word_lyrics = fs::read_to_string(&stem_file).ok().filter(|s| !s.trim().is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    // If lyrics contains embedded word-by-word tags (<...>), populate word_lyrics and clean lyrics
+    let mut lyrics = lyrics;
+    if word_lyrics.is_none() {
+        if let Some(ref l) = lyrics {
+            if l.contains('<') && l.contains('>') {
+                word_lyrics = Some(l.clone());
+                if let Ok(re) = regex::Regex::new(r#"<[^>]+>"#) {
+                    let clean = re.replace_all(l, "").to_string();
+                    let cleaned = clean
+                        .lines()
+                        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    lyrics = Some(cleaned);
+                }
+            }
+        }
+    }
 
     let source_id = tag.and_then(|t| {
         t.get(&ItemKey::Comment)
@@ -2573,14 +2611,22 @@ fn get_process_pss(_pid: sysinfo::Pid) -> u64 {
     0
 }
 
+fn respond_with_cors(request: tiny_http::Request, status: u16, body: &str) {
+    let mut resp = Response::from_string(body).with_status_code(status);
+    resp.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+    resp.add_header(Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, OPTIONS"[..]).unwrap());
+    resp.add_header(Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"*"[..]).unwrap());
+    let _ = request.respond(resp);
+}
+
 fn start_asset_server(port: u16) {
     let addr = format!("127.0.0.1:{}", port);
     std::thread::spawn(move || {
         match Server::http(&addr) {
             Ok(server) => {
                 let server = std::sync::Arc::new(server);
-                // Spawn 4 worker threads to handle requests in parallel (saving thread overhead and RAM)
-                for _ in 0..4 {
+                // Spawn 16 worker threads to handle requests in parallel without queue drops or timeouts
+                for _ in 0..16 {
                     let server = server.clone();
                     std::thread::spawn(move || {
                         for request in server.incoming_requests() {
@@ -2616,7 +2662,7 @@ fn handle_request(request: tiny_http::Request) {
 
     let url_str = format!("http://127.0.0.1:1422{}", request.url()); // TODO: Pass port to handle_request if needed
     let Ok(url) = Url::parse(&url_str) else {
-        let _ = request.respond(Response::from_string("Invalid URL").with_status_code(400));
+        respond_with_cors(request, 400, "Invalid URL");
         return;
     };
 
@@ -2760,7 +2806,7 @@ fn handle_request(request: tiny_http::Request) {
                 return;
             }
         }
-        let _ = request.respond(Response::from_string("Proxy Failed").with_status_code(500));
+        respond_with_cors(request, 500, "Proxy Failed");
         return;
     }
 
@@ -2788,7 +2834,7 @@ fn handle_request(request: tiny_http::Request) {
     let path = Path::new(&decoded_path);
 
     if !path.exists() {
-        let _ = request.respond(Response::from_string("Not Found").with_status_code(404));
+        respond_with_cors(request, 404, "Not Found");
         return;
     }
 
@@ -2797,8 +2843,23 @@ fn handle_request(request: tiny_http::Request) {
     // Handle cover art extraction
     if is_thumb {
         let path_hash = hash_string(&final_path.to_string_lossy());
+        let mem_cache_key = format!("{:x}_{}", path_hash, requested_size);
+
+        // 1. Check in-memory RAM cache first (<0.1ms latency)
+        if let Ok(lock) = COVER_MEM_CACHE.lock() {
+            if let Some(ref map) = *lock {
+                if let Some(data) = map.get(&mem_cache_key) {
+                    let mut response = Response::from_data(data.clone());
+                    response.add_header(Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap());
+                    response.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+                    response.add_header(Header::from_bytes(&b"Cache-Control"[..], &b"public, max-age=604800, immutable"[..]).unwrap());
+                    let _ = request.respond(response);
+                    return;
+                }
+            }
+        }
         
-        // 1. Check disk cache
+        // 2. Check disk cache
         let cache_key = format!("{:x}_{}.jpg", path_hash, requested_size);
         let mut cached_path = None;
         if let Ok(lock) = COVERS_CACHE_DIR.lock() {
@@ -2810,6 +2871,15 @@ fn handle_request(request: tiny_http::Request) {
         if let Some(ref cp) = cached_path {
             if cp.exists() {
                 if let Ok(data) = fs::read(cp) {
+                    // Store into memory cache
+                    if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
+                        let map = lock.get_or_insert_with(std::collections::HashMap::new);
+                        if map.len() > 200 {
+                            map.clear();
+                        }
+                        map.insert(mem_cache_key.clone(), data.clone());
+                    }
+
                     let mut response = Response::from_data(data);
                     response.add_header(Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap());
                     response.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
@@ -2820,59 +2890,86 @@ fn handle_request(request: tiny_http::Request) {
             }
         }
 
-        // Extract and compress
+        // 3. Extract and compress
+        let mut raw_data: Option<Vec<u8>> = None;
         if let Ok(tagged) = lofty::read_from_path(final_path) {
-            let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
-            if let Some(t) = tag {
-                if let Some(pic) = t.pictures().first() {
-                    let raw_data = pic.data();
+            // Check all tags (ID3v2, FLAC, MP4) rather than just the first tag
+            for tag in tagged.tags() {
+                if let Some(pic) = tag.pictures().first() {
+                    raw_data = Some(pic.data().to_vec());
+                    break;
+                }
+            }
+        }
 
-                    // Compress to 256x256
-                    if let Ok(reader) =
-                        ImageReader::new(Cursor::new(raw_data)).with_guessed_format()
-                    {
-                        if let Ok(img) = reader.decode() {
-                            let resized = img.thumbnail(requested_size, requested_size);
-                            let mut buffer = Cursor::new(Vec::new());
-                            let quality = if is_lowend { 50 } else { 65 };
-                            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, quality);
-                            if encoder.encode_image(&resized.to_rgb8()).is_ok()
-                            {
-                                let compressed_data = buffer.into_inner();
-
-                                // Cache the result
-                                if let Some(ref cp) = cached_path {
-                                    let _ = fs::write(cp, &compressed_data);
-                                }
-
-                                let mut response = Response::from_data(compressed_data);
-                                response.add_header(
-                                    Header::from_bytes(&b"Content-Type"[..], b"image/jpeg")
-                                        .unwrap(),
-                                );
-                                response.add_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Origin"[..],
-                                        &b"*"[..],
-                                    )
-                                    .unwrap(),
-                                );
-                                response.add_header(
-                                    Header::from_bytes(
-                                        &b"Cache-Control"[..],
-                                        &b"public, max-age=604800, immutable"[..],
-                                    )
-                                    .unwrap(),
-                                );
-                                let _ = request.respond(response);
-                                return;
-                            }
+        // Fallback: check co-located cover image in the same directory
+        if raw_data.is_none() {
+            if let Some(parent) = final_path.parent() {
+                let stem = final_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let candidates = [
+                    parent.join(format!("{}.jpg", stem)),
+                    parent.join(format!("{}.png", stem)),
+                    parent.join("cover.jpg"),
+                    parent.join("cover.png"),
+                    parent.join("folder.jpg"),
+                    parent.join("folder.png"),
+                    parent.join("front.jpg"),
+                    parent.join("front.png"),
+                    parent.join("AlbumArtSmall.jpg"),
+                ];
+                for cand in &candidates {
+                    if cand.is_file() {
+                        if let Ok(data) = fs::read(cand) {
+                            raw_data = Some(data);
+                            break;
                         }
                     }
                 }
             }
         }
-        let _ = request.respond(Response::from_string("No Cover").with_status_code(404));
+
+        if let Some(raw) = raw_data {
+            if let Ok(reader) = ImageReader::new(Cursor::new(&raw)).with_guessed_format() {
+                if let Ok(img) = reader.decode() {
+                    let resized = img.thumbnail(requested_size, requested_size);
+                    let mut buffer = Cursor::new(Vec::new());
+                    let quality = if is_lowend { 50 } else { 65 };
+                    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, quality);
+                    if encoder.encode_image(&resized.to_rgb8()).is_ok() {
+                        let compressed_data = buffer.into_inner();
+
+                        // Cache to disk
+                        if let Some(ref cp) = cached_path {
+                            let _ = fs::write(cp, &compressed_data);
+                        }
+
+                        // Cache to memory
+                        if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
+                            let map = lock.get_or_insert_with(std::collections::HashMap::new);
+                            if map.len() > 200 {
+                                map.clear();
+                            }
+                            map.insert(mem_cache_key, compressed_data.clone());
+                        }
+
+                        let mut response = Response::from_data(compressed_data);
+                        response.add_header(
+                            Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap(),
+                        );
+                        response.add_header(
+                            Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+                        );
+                        response.add_header(
+                            Header::from_bytes(&b"Cache-Control"[..], &b"public, max-age=604800, immutable"[..]).unwrap(),
+                        );
+                        let _ = request.respond(response);
+                        return;
+                    }
+                }
+            }
+        }
+
+        respond_with_cors(request, 404, "No Cover");
         return;
     }
 
@@ -3005,7 +3102,7 @@ fn handle_request(request: tiny_http::Request) {
             }
         }
     } else {
-        let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
+        respond_with_cors(request, 403, "Forbidden");
     }
 }
 
@@ -3229,6 +3326,11 @@ fn start_window_drag(window: tauri::Window) -> Result<(), String> {
 
 #[tauri::command]
 fn clear_image_cache() -> Result<(), String> {
+    if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
+        if let Some(ref mut map) = *lock {
+            map.clear();
+        }
+    }
     if let Ok(lock) = COVERS_CACHE_DIR.lock() {
         if let Some(dir) = &*lock {
             if dir.exists() {
@@ -3725,6 +3827,24 @@ fn main() {
             token_expiry: Mutex::new(0),
         })
         .setup(|app| {
+            // ── Initialize Cover Cache Directory ──────────────────────
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                let covers_dir = cache_dir.join("covers");
+                let _ = fs::create_dir_all(&covers_dir);
+                if let Ok(mut lock) = COVERS_CACHE_DIR.lock() {
+                    *lock = Some(covers_dir);
+                }
+            }
+
+            // ── Initialize Word Lyrics Directory ──────────────────────
+            if let Ok(audio_dir) = app.path().audio_dir() {
+                let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
+                let _ = fs::create_dir_all(&lyrics_dir);
+                if let Ok(mut lock) = WORD_LYRICS_DIR.lock() {
+                    *lock = Some(lyrics_dir);
+                }
+            }
+
             // ── Local Asset Server (tiny_http) ────────────────────────
             start_asset_server(1422);
 

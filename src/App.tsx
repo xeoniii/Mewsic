@@ -587,6 +587,7 @@ export default function App() {
       {showUpdateModal && (
         <UpdateModal
           initialVersion={pendingUpdateVersion}
+          autoStart={Boolean(pendingUpdateVersion)}
           onClose={() => setShowUpdateModal(false)}
         />
       )}
