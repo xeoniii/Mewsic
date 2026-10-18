@@ -148,13 +148,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
+        continue-on-error: true
         run: |
-          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
-            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
-            while read -r asset; do
+          ASSETS=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          echo "$ASSETS" | (grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
               echo "Deleting versioned asset: $asset"
               gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
-            done
+            fi
+          done || true
 
       - name: Upload updater metadata artifact
         uses: actions/upload-artifact@v4
@@ -278,13 +280,15 @@ jobs:
       - name: Clean up versioned assets from release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
         run: |
-          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
-            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
-            while read -r asset; do
+          ASSETS=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          echo "$ASSETS" | (grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
               echo "Deleting versioned asset: $asset"
               gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
-            done
+            fi
+          done || true
 
       - name: Upload updater metadata artifact
         uses: actions/upload-artifact@v4
@@ -298,7 +302,7 @@ jobs:
   release-macos-x64:
     permissions:
       contents: write
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
       - name: Checkout repository
@@ -408,13 +412,15 @@ jobs:
       - name: Clean up versioned assets from release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
         run: |
-          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
-            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
-            while read -r asset; do
+          ASSETS=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          echo "$ASSETS" | (grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
               echo "Deleting versioned asset: $asset"
               gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
-            done
+            fi
+          done || true
 
       - name: Upload updater metadata artifact
         uses: actions/upload-artifact@v4
@@ -549,13 +555,15 @@ jobs:
       - name: Clean up versioned assets from release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
         run: |
-          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
-            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
-            while read -r asset; do
+          ASSETS=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          echo "$ASSETS" | (grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
               echo "Deleting versioned asset: $asset"
               gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
-            done
+            fi
+          done || true
 
       - name: Upload updater metadata artifact
         uses: actions/upload-artifact@v4
@@ -634,10 +642,12 @@ jobs:
       - name: Final sweep to delete any versioned assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
         run: |
-          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | \
-            grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' | \
-            while read -r asset; do
+          ASSETS=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          echo "$ASSETS" | (grep -E '(_[0-9]+\.[0-9]+|-[0-9]+\.[0-9]+)' || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
               echo "Deleting versioned asset: $asset"
               gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
-            done
+            fi
+          done || true
