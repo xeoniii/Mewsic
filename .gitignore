@@ -144,5 +144,8 @@ src-tauri/target/release/bundle/rpm
 /playlists/
 /plugins/
 *.mewsic
+release
 release.sh
-
+release.ps1
+release.cmd
+release.bat

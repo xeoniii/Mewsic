@@ -1,5 +1,8 @@
 name: Release
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -41,12 +44,12 @@ jobs:
           gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
 
       # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
-      - name: Build Slim app (Windows NSIS without bundled binaries)
+      - name: Build Slim app (Windows NSIS & MSI without bundled binaries)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi
 
       - name: Prepare Windows Slim artifacts
         env:
@@ -56,12 +59,16 @@ jobs:
         run: |
           mkdir -p release-artifacts
           SETUP_EXE=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*setup.exe' | head -n1)
+          SETUP_MSI=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi' | head -n1)
           SETUP_SIG=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*setup.exe.sig' | head -n1)
           SETUP_ZIP=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*.nsis.zip' | head -n1)
           ZIP_SIG=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*.nsis.zip.sig' | head -n1)
 
           if [ -n "$SETUP_EXE" ] && [ -f "$SETUP_EXE" ]; then
             cp "$SETUP_EXE" release-artifacts/Mewsic-Setup-Slim.exe
+          fi
+          if [ -n "$SETUP_MSI" ] && [ -f "$SETUP_MSI" ]; then
+            cp "$SETUP_MSI" release-artifacts/Mewsic-Setup-Slim.msi
           fi
           if [ -n "$SETUP_SIG" ] && [ -f "$SETUP_SIG" ]; then
             cp "$SETUP_SIG" release-artifacts/Mewsic-Setup-Slim.exe.sig
@@ -105,19 +112,23 @@ jobs:
           curl -L -o src-tauri/bin/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
           curl -L -o src-tauri/bin/ffmpeg.exe https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64
 
-      - name: Build Full app (Windows NSIS with bundled binaries)
+      - name: Build Full app (Windows NSIS & MSI with bundled binaries)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi
 
       - name: Prepare Windows Full artifact
         shell: bash
         run: |
           SETUP_EXE=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*setup.exe' | head -n1)
+          SETUP_MSI=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi -name '*.msi' | head -n1)
           if [ -n "$SETUP_EXE" ] && [ -f "$SETUP_EXE" ]; then
             cp "$SETUP_EXE" release-artifacts/Mewsic-Setup.exe
+          fi
+          if [ -n "$SETUP_MSI" ] && [ -f "$SETUP_MSI" ]; then
+            cp "$SETUP_MSI" release-artifacts/Mewsic-Setup.msi
           fi
 
       # 3. Upload only static artifacts and delete versioned assets
