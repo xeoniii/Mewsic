@@ -63,7 +63,6 @@ pub struct Track {
     pub file_size: u64,
     pub format: String,
     pub lyrics: Option<String>,
-    pub word_lyrics: Option<String>,
     pub date_added: u64,
     pub source_id: Option<String>,
     pub provider: Option<String>,
@@ -277,7 +276,6 @@ pub struct HarbourState {
 
 static COVERS_CACHE_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static COVER_MEM_CACHE: Mutex<Option<std::collections::HashMap<String, Vec<u8>>>> = Mutex::new(None);
-static WORD_LYRICS_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -296,6 +294,19 @@ fn hash_string(s: &str) -> u64 {
     let mut h = FxHasher::default();
     s.hash(&mut h);
     h.finish()
+}
+
+fn clean_lrc_tags(raw: &str) -> String {
+    if raw.contains('<') && raw.contains('>') {
+        static TAG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = TAG_RE.get_or_init(|| regex::Regex::new(r#"<[^>]+>"#).unwrap());
+        return re.replace_all(raw, "")
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    raw.to_string()
 }
 
 fn parse_track(path: &Path) -> Result<Track, String> {
@@ -335,13 +346,6 @@ fn parse_track(path: &Path) -> Result<Track, String> {
         } else {
             None
         }
-    } else {
-        None
-    };
-
-    let elrc_path = path.with_extension("elrc");
-    let mut word_lyrics: Option<String> = if elrc_path.is_file() {
-        fs::read_to_string(&elrc_path).ok().filter(|s| !s.trim().is_empty())
     } else {
         None
     };
@@ -389,42 +393,7 @@ fn parse_track(path: &Path) -> Result<Track, String> {
     };
     let id = format!("{:x}", hash_string(&id_seed));
 
-    // If word_lyrics wasn't co-located with audio, check central WordLyrics storage
-    if word_lyrics.is_none() {
-        if let Ok(lock) = WORD_LYRICS_DIR.lock() {
-            if let Some(ref lyrics_dir) = *lock {
-                let id_file = lyrics_dir.join(format!("{}.elrc", sanitize_lyrics_filename(&id)));
-                if id_file.is_file() {
-                    word_lyrics = fs::read_to_string(&id_file).ok().filter(|s| !s.trim().is_empty());
-                } else {
-                    let stem = stem_from_path(path);
-                    let stem_file = lyrics_dir.join(format!("{}.elrc", sanitize_lyrics_filename(&stem)));
-                    if stem_file.is_file() {
-                        word_lyrics = fs::read_to_string(&stem_file).ok().filter(|s| !s.trim().is_empty());
-                    }
-                }
-            }
-        }
-    }
-
-    // If lyrics contains embedded word-by-word tags (<...>), populate word_lyrics and clean lyrics
-    let mut lyrics = lyrics;
-    if word_lyrics.is_none() {
-        if let Some(ref l) = lyrics {
-            if l.contains('<') && l.contains('>') {
-                word_lyrics = Some(l.clone());
-                if let Ok(re) = regex::Regex::new(r#"<[^>]+>"#) {
-                    let clean = re.replace_all(l, "").to_string();
-                    let cleaned = clean
-                        .lines()
-                        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    lyrics = Some(cleaned);
-                }
-            }
-        }
-    }
+    let lyrics = lyrics.map(|raw| clean_lrc_tags(&raw));
 
     let source_id = tag.and_then(|t| {
         t.get(&ItemKey::Comment)
@@ -457,7 +426,6 @@ fn parse_track(path: &Path) -> Result<Track, String> {
         file_size,
         format,
         lyrics,
-        word_lyrics,
         date_added,
         source_id,
         provider,
@@ -891,7 +859,7 @@ async fn create_playlist(playlists_dir: String, name: String) -> Result<Playlist
 }
 
 #[tauri::command]
-async fn delete_track(app_handle: tauri::AppHandle, file_path: String) -> Result<(), String> {
+async fn delete_track(_app_handle: tauri::AppHandle, file_path: String) -> Result<(), String> {
     let path = PathBuf::from(&file_path);
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("Failed to delete file: {}", e))?;
@@ -907,16 +875,6 @@ async fn delete_track(app_handle: tauri::AppHandle, file_path: String) -> Result
         let _ = fs::remove_file(lrc_path);
     }
 
-    // Clean up app internal WordLyrics cache if present
-    if let Ok(audio_dir) = app_handle.path().audio_dir() {
-        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
-        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            let app_file = lyrics_dir.join(format!("{}.elrc", sanitize_lyrics_filename(stem)));
-            if app_file.exists() {
-                let _ = fs::remove_file(app_file);
-            }
-        }
-    }
 
     Ok(())
 }
@@ -1511,28 +1469,9 @@ struct DownloadLog {
     message: String,
 }
 
-fn handle_downloaded_lyrics(target_path: &Path, lyrics_text: &str, tag: &mut Tag) {
-    if lyrics_text.contains('<') && lyrics_text.contains('>') {
-        // 1. Save full word-by-word lyrics into sidecar .elrc file
-        let sidecar_path = target_path.with_extension("elrc");
-        let _ = fs::write(sidecar_path, lyrics_text);
-
-        // 2. Strip <...> word tags so the MP3 tag only has clean standard line LRC
-        if let Ok(re) = regex::Regex::new(r#"<[^>]+>"#) {
-            let clean = re.replace_all(lyrics_text, "").to_string();
-            let cleaned = clean
-                .lines()
-                .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-                .collect::<Vec<_>>()
-                .join("\n");
-            tag.insert_text(ItemKey::Lyrics, cleaned);
-        } else {
-            tag.insert_text(ItemKey::Lyrics, lyrics_text.to_string());
-        }
-    } else {
-        // Standard line-by-line or plain lyrics
-        tag.insert_text(ItemKey::Lyrics, lyrics_text.to_string());
-    }
+fn handle_downloaded_lyrics(lyrics_text: &str, tag: &mut Tag) {
+    let clean = clean_lrc_tags(lyrics_text);
+    tag.insert_text(ItemKey::Lyrics, clean);
 }
 
 fn decrypt_jiosaavn_url(encrypted_b64: &str) -> Result<String, String> {
@@ -1800,10 +1739,10 @@ async fn tag_downloaded_file(
             tag.insert_text(ItemKey::Comment, comment);
         }
 
-        // Auto fetch and embed lyrics (word-by-word into .elrc sidecar, clean line LRC into audio tag)
+        // Auto fetch and embed lyrics (clean line LRC into audio tag)
         let search_query = format!("{} {}", clean_artist, title);
         if let Ok(Some(lyrics_text)) = fetch_lyrics(search_query).await {
-            handle_downloaded_lyrics(target_path, &lyrics_text, tag);
+            handle_downloaded_lyrics(&lyrics_text, tag);
         }
 
         // Attempt to download and embed cover art
@@ -2259,29 +2198,134 @@ async fn pick_directory(app_handle: tauri::AppHandle) -> Result<Option<String>, 
     Ok(folder.map(|p| p.to_string()))
 }
 
-#[tauri::command]
-async fn get_cover_art(file_path: String) -> Result<Option<String>, String> {
-    let path = Path::new(&file_path);
-    
-    // Check if it's already a URL (e.g. from iTunes)
-    if file_path.starts_with("http") {
-        return Ok(Some(file_path));
-    }
+fn get_cover_art_bytes(final_path: &Path, requested_size: u32, is_lowend: bool) -> Option<Vec<u8>> {
+    let path_hash = hash_string(&final_path.to_string_lossy());
+    let mem_cache_key = format!("{:x}_{}", path_hash, requested_size);
 
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    if let Ok(tagged) = lofty::read_from_path(path) {
-        let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
-        if let Some(t) = tag {
-            if !t.pictures().is_empty() {
-                return Ok(Some(file_path));
+    // 1. Check in-memory RAM cache first (<0.1ms latency)
+    if let Ok(lock) = COVER_MEM_CACHE.lock() {
+        if let Some(ref map) = *lock {
+            if let Some(data) = map.get(&mem_cache_key) {
+                return Some(data.clone());
             }
         }
     }
 
-    Ok(None)
+    // 2. Check disk cache
+    let cache_key = format!("{:x}_{}.jpg", path_hash, requested_size);
+    let mut cached_path = None;
+    if let Ok(lock) = COVERS_CACHE_DIR.lock() {
+        if let Some(dir) = &*lock {
+            cached_path = Some(dir.join(&cache_key));
+        }
+    }
+
+    if let Some(ref cp) = cached_path {
+        if cp.exists() {
+            if let Ok(data) = fs::read(cp) {
+                if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
+                    let map = lock.get_or_insert_with(std::collections::HashMap::new);
+                    if map.len() > 200 {
+                        map.clear();
+                    }
+                    map.insert(mem_cache_key.clone(), data.clone());
+                }
+                return Some(data);
+            }
+        }
+    }
+
+    // 3. Extract and compress
+    let mut raw_data: Option<Vec<u8>> = None;
+    if let Ok(tagged) = lofty::read_from_path(final_path) {
+        for tag in tagged.tags() {
+            if let Some(pic) = tag.pictures().first() {
+                raw_data = Some(pic.data().to_vec());
+                break;
+            }
+        }
+    }
+
+    // Fallback: check co-located cover image in the same directory
+    if raw_data.is_none() {
+        if let Some(parent) = final_path.parent() {
+            let stem = final_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            let candidates = [
+                parent.join(format!("{}.jpg", stem)),
+                parent.join(format!("{}.png", stem)),
+                parent.join("cover.jpg"),
+                parent.join("cover.png"),
+                parent.join("folder.jpg"),
+                parent.join("folder.png"),
+                parent.join("front.jpg"),
+                parent.join("front.png"),
+                parent.join("AlbumArtSmall.jpg"),
+            ];
+            for cand in &candidates {
+                if cand.is_file() {
+                    if let Ok(data) = fs::read(cand) {
+                        raw_data = Some(data);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(raw) = raw_data {
+        if let Ok(reader) = ImageReader::new(Cursor::new(&raw)).with_guessed_format() {
+            if let Ok(img) = reader.decode() {
+                let resized = img.thumbnail(requested_size, requested_size);
+                let mut buffer = Cursor::new(Vec::new());
+                let quality = if is_lowend { 50 } else { 65 };
+                let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, quality);
+                if encoder.encode_image(&resized.to_rgb8()).is_ok() {
+                    let compressed_data = buffer.into_inner();
+
+                    // Cache to disk
+                    if let Some(ref cp) = cached_path {
+                        let _ = fs::write(cp, &compressed_data);
+                    }
+
+                    // Cache to memory
+                    if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
+                        let map = lock.get_or_insert_with(std::collections::HashMap::new);
+                        if map.len() > 200 {
+                            map.clear();
+                        }
+                        map.insert(mem_cache_key, compressed_data.clone());
+                    }
+
+                    return Some(compressed_data);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+async fn get_cover_art(
+    file_path: String,
+    size: Option<u32>,
+    low_end: Option<bool>,
+) -> Result<Option<String>, String> {
+    if file_path.starts_with("http://") || file_path.starts_with("https://") || file_path.starts_with("data:") {
+        return Ok(Some(file_path));
+    }
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let req_size = size.unwrap_or(256);
+    let is_low = low_end.unwrap_or(false);
+    if let Some(bytes) = get_cover_art_bytes(path, req_size, is_low) {
+        let b64 = general_purpose::STANDARD.encode(bytes);
+        Ok(Some(format!("data:image/jpeg;base64,{}", b64)))
+    } else {
+        Ok(None)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2381,7 +2425,8 @@ async fn save_track_metadata(file_path: String, metadata: TrackMetadata) -> Resu
     }
     if let Some(lyrics) = metadata.lyrics {
         if !lyrics.is_empty() {
-            tag.insert_text(ItemKey::Lyrics, lyrics);
+            let clean = clean_lrc_tags(&lyrics);
+            tag.insert_text(ItemKey::Lyrics, clean);
         }
     }
 
@@ -2407,100 +2452,6 @@ async fn save_track_metadata(file_path: String, metadata: TrackMetadata) -> Resu
     tagged
         .save_to_path(path)
         .map_err(|e| format!("Failed to save metadata: {}", e))
-}
-
-fn sanitize_lyrics_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect()
-}
-
-#[tauri::command]
-fn save_word_lyrics(
-    app_handle: tauri::AppHandle,
-    file_path: String,
-    track_id: String,
-    content: String,
-) -> Result<(), String> {
-    // 1. Save sidecar .elrc alongside audio file if local
-    let path = Path::new(&file_path);
-    if path.is_file() {
-        let sidecar_path = path.with_extension("elrc");
-        let _ = fs::write(&sidecar_path, &content);
-    }
-
-    // 2. Also save into dedicated WordLyrics directory
-    if let Ok(audio_dir) = app_handle.path().audio_dir() {
-        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
-        let _ = fs::create_dir_all(&lyrics_dir);
-        let filename = format!("{}.elrc", sanitize_lyrics_filename(&track_id));
-        let app_file = lyrics_dir.join(filename);
-        let _ = fs::write(app_file, &content);
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-fn load_word_lyrics(
-    app_handle: tauri::AppHandle,
-    file_path: String,
-    track_id: String,
-) -> Result<Option<String>, String> {
-    // 1. Check local sidecar (.elrc)
-    let path = Path::new(&file_path);
-    if path.is_file() {
-        let sidecar_path = path.with_extension("elrc");
-        if sidecar_path.is_file() {
-            if let Ok(content) = fs::read_to_string(&sidecar_path) {
-                if !content.trim().is_empty() {
-                    return Ok(Some(content));
-                }
-            }
-        }
-    }
-
-    // 2. Check app storage WordLyrics directory
-    if let Ok(audio_dir) = app_handle.path().audio_dir() {
-        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
-        let filename = format!("{}.elrc", sanitize_lyrics_filename(&track_id));
-        let app_file = lyrics_dir.join(filename);
-        if app_file.is_file() {
-            if let Ok(content) = fs::read_to_string(app_file) {
-                if !content.trim().is_empty() {
-                    return Ok(Some(content));
-                }
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-#[tauri::command]
-fn delete_word_lyrics(
-    app_handle: tauri::AppHandle,
-    file_path: String,
-    track_id: String,
-) -> Result<(), String> {
-    let path = Path::new(&file_path);
-    if path.is_file() {
-        let sidecar_path = path.with_extension("elrc");
-        if sidecar_path.exists() {
-            let _ = fs::remove_file(sidecar_path);
-        }
-    }
-
-    if let Ok(audio_dir) = app_handle.path().audio_dir() {
-        let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
-        let filename = format!("{}.elrc", sanitize_lyrics_filename(&track_id));
-        let app_file = lyrics_dir.join(filename);
-        if app_file.exists() {
-            let _ = fs::remove_file(app_file);
-        }
-    }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -2842,131 +2793,19 @@ fn handle_request(request: tiny_http::Request) {
 
     // Handle cover art extraction
     if is_thumb {
-        let path_hash = hash_string(&final_path.to_string_lossy());
-        let mem_cache_key = format!("{:x}_{}", path_hash, requested_size);
-
-        // 1. Check in-memory RAM cache first (<0.1ms latency)
-        if let Ok(lock) = COVER_MEM_CACHE.lock() {
-            if let Some(ref map) = *lock {
-                if let Some(data) = map.get(&mem_cache_key) {
-                    let mut response = Response::from_data(data.clone());
-                    response.add_header(Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap());
-                    response.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
-                    response.add_header(Header::from_bytes(&b"Cache-Control"[..], &b"public, max-age=604800, immutable"[..]).unwrap());
-                    let _ = request.respond(response);
-                    return;
-                }
-            }
-        }
-        
-        // 2. Check disk cache
-        let cache_key = format!("{:x}_{}.jpg", path_hash, requested_size);
-        let mut cached_path = None;
-        if let Ok(lock) = COVERS_CACHE_DIR.lock() {
-            if let Some(dir) = &*lock {
-                cached_path = Some(dir.join(&cache_key));
-            }
-        }
-
-        if let Some(ref cp) = cached_path {
-            if cp.exists() {
-                if let Ok(data) = fs::read(cp) {
-                    // Store into memory cache
-                    if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
-                        let map = lock.get_or_insert_with(std::collections::HashMap::new);
-                        if map.len() > 200 {
-                            map.clear();
-                        }
-                        map.insert(mem_cache_key.clone(), data.clone());
-                    }
-
-                    let mut response = Response::from_data(data);
-                    response.add_header(Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap());
-                    response.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
-                    response.add_header(Header::from_bytes(&b"Cache-Control"[..], &b"public, max-age=604800, immutable"[..]).unwrap());
-                    let _ = request.respond(response);
-                    return;
-                }
-            }
-        }
-
-        // 3. Extract and compress
-        let mut raw_data: Option<Vec<u8>> = None;
-        if let Ok(tagged) = lofty::read_from_path(final_path) {
-            // Check all tags (ID3v2, FLAC, MP4) rather than just the first tag
-            for tag in tagged.tags() {
-                if let Some(pic) = tag.pictures().first() {
-                    raw_data = Some(pic.data().to_vec());
-                    break;
-                }
-            }
-        }
-
-        // Fallback: check co-located cover image in the same directory
-        if raw_data.is_none() {
-            if let Some(parent) = final_path.parent() {
-                let stem = final_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                let candidates = [
-                    parent.join(format!("{}.jpg", stem)),
-                    parent.join(format!("{}.png", stem)),
-                    parent.join("cover.jpg"),
-                    parent.join("cover.png"),
-                    parent.join("folder.jpg"),
-                    parent.join("folder.png"),
-                    parent.join("front.jpg"),
-                    parent.join("front.png"),
-                    parent.join("AlbumArtSmall.jpg"),
-                ];
-                for cand in &candidates {
-                    if cand.is_file() {
-                        if let Ok(data) = fs::read(cand) {
-                            raw_data = Some(data);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(raw) = raw_data {
-            if let Ok(reader) = ImageReader::new(Cursor::new(&raw)).with_guessed_format() {
-                if let Ok(img) = reader.decode() {
-                    let resized = img.thumbnail(requested_size, requested_size);
-                    let mut buffer = Cursor::new(Vec::new());
-                    let quality = if is_lowend { 50 } else { 65 };
-                    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, quality);
-                    if encoder.encode_image(&resized.to_rgb8()).is_ok() {
-                        let compressed_data = buffer.into_inner();
-
-                        // Cache to disk
-                        if let Some(ref cp) = cached_path {
-                            let _ = fs::write(cp, &compressed_data);
-                        }
-
-                        // Cache to memory
-                        if let Ok(mut lock) = COVER_MEM_CACHE.lock() {
-                            let map = lock.get_or_insert_with(std::collections::HashMap::new);
-                            if map.len() > 200 {
-                                map.clear();
-                            }
-                            map.insert(mem_cache_key, compressed_data.clone());
-                        }
-
-                        let mut response = Response::from_data(compressed_data);
-                        response.add_header(
-                            Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap(),
-                        );
-                        response.add_header(
-                            Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
-                        );
-                        response.add_header(
-                            Header::from_bytes(&b"Cache-Control"[..], &b"public, max-age=604800, immutable"[..]).unwrap(),
-                        );
-                        let _ = request.respond(response);
-                        return;
-                    }
-                }
-            }
+        if let Some(compressed_data) = get_cover_art_bytes(final_path, requested_size, is_lowend) {
+            let mut response = Response::from_data(compressed_data);
+            response.add_header(
+                Header::from_bytes(&b"Content-Type"[..], b"image/jpeg").unwrap(),
+            );
+            response.add_header(
+                Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+            );
+            response.add_header(
+                Header::from_bytes(&b"Cache-Control"[..], &b"public, max-age=604800, immutable"[..]).unwrap(),
+            );
+            let _ = request.respond(response);
+            return;
         }
 
         respond_with_cors(request, 404, "No Cover");
@@ -3106,61 +2945,6 @@ fn handle_request(request: tiny_http::Request) {
     }
 }
 
-fn ms_to_lrc_tag(ms: u64) -> String {
-    let total_seconds = ms / 1000;
-    let minutes = total_seconds / 60;
-    let seconds = total_seconds % 60;
-    let hundredths = (ms % 1000) / 10;
-    format!("{:02}:{:02}.{:02}", minutes, seconds, hundredths)
-}
-
-fn convert_netease_yrc_to_elrc(yrc_raw: &str) -> Option<String> {
-    let line_re = regex::Regex::new(r#"^\[(\d+),(\d+)\](.*)$"#).ok()?;
-    let word_re = regex::Regex::new(r#"\((\d+),(\d+)(?:,\d+)?\)\s*([^\(]+)"#).ok()?;
-
-    let mut result_lines = Vec::new();
-
-    for raw_line in yrc_raw.lines() {
-        let trimmed = raw_line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if let Some(caps) = line_re.captures(trimmed) {
-            let line_start_ms: u64 = caps[1].parse().unwrap_or(0);
-            let rest = &caps[3];
-
-            // Skip 0ms credits lines (producer, composer, writer info)
-            if line_start_ms == 0 && (rest.contains("制作人") || rest.contains("作词") || rest.contains("作曲") || rest.contains("编曲") || rest.contains(" : ")) {
-                continue;
-            }
-
-            let mut word_parts = Vec::new();
-            for wcaps in word_re.captures_iter(rest) {
-                let word_start_ms: u64 = wcaps[1].parse().unwrap_or(line_start_ms);
-                let word_text = wcaps[3].trim();
-                if !word_text.is_empty() {
-                    word_parts.push(format!("<{}> {}", ms_to_lrc_tag(word_start_ms), word_text));
-                }
-            }
-
-            if !word_parts.is_empty() {
-                result_lines.push(format!(
-                    "[{}] {}",
-                    ms_to_lrc_tag(line_start_ms),
-                    word_parts.join(" ")
-                ));
-            }
-        }
-    }
-
-    if result_lines.is_empty() {
-        None
-    } else {
-        Some(result_lines.join("\n"))
-    }
-}
-
 #[tauri::command]
 async fn fetch_lyrics(query: String) -> Result<Option<String>, String> {
     let clean_query = query
@@ -3175,7 +2959,44 @@ async fn fetch_lyrics(query: String) -> Result<Option<String>, String> {
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    // 1. Check for word-by-word synced lyrics (YRC) first
+    // 1. Check LRCLIB for line-by-line synced lyrics (or plain text fallback)
+    let lrclib_url = format!(
+        "https://lrclib.net/api/search?q={}",
+        urlencoding::encode(&clean_query)
+    );
+
+    if let Ok(resp) = client
+        .get(&lrclib_url)
+        .header("User-Agent", "Mewsic/1.0.0 (https://github.com/xeoniii/Mewsic)")
+        .send()
+        .await
+    {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(results) = data.as_array() {
+                if !results.is_empty() {
+                    let best = &results[0];
+                    let synced = best.get("syncedLyrics").and_then(|v| v.as_str());
+                    let plain = best.get("plainLyrics").and_then(|v| v.as_str());
+
+                    if let Some(s) = synced {
+                        let clean = s.trim();
+                        if !clean.is_empty() {
+                            return Ok(Some(clean.to_string()));
+                        }
+                    }
+
+                    if let Some(p) = plain {
+                        let clean = p.trim();
+                        if !clean.is_empty() {
+                            return Ok(Some(clean.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback to NetEase for standard line-by-line synced lyrics
     let netease_search_url = format!(
         "https://music.163.com/api/cloudsearch/pc?s={}&type=1&offset=0&limit=3",
         urlencoding::encode(&clean_query)
@@ -3193,7 +3014,7 @@ async fn fetch_lyrics(query: String) -> Result<Option<String>, String> {
                 if let Some(first_song) = songs.first() {
                     if let Some(song_id) = first_song["id"].as_i64() {
                         let lyric_url = format!(
-                            "https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1&yv=1",
+                            "https://music.163.com/api/song/lyric?id={}&lv=1&kv=1&tv=-1",
                             song_id
                         );
                         if let Ok(lyric_resp) = client
@@ -3204,48 +3025,13 @@ async fn fetch_lyrics(query: String) -> Result<Option<String>, String> {
                             .await
                         {
                             if let Ok(lyric_data) = lyric_resp.json::<serde_json::Value>().await {
-                                // Priority 1: Word-by-word synced lyrics (yrc)
-                                if let Some(yrc_raw) = lyric_data["yrc"]["lyric"].as_str() {
-                                    if let Some(converted_elrc) = convert_netease_yrc_to_elrc(yrc_raw) {
-                                        return Ok(Some(converted_elrc));
+                                if let Some(lrc_raw) = lyric_data["lrc"]["lyric"].as_str() {
+                                    let clean = lrc_raw.trim();
+                                    if !clean.is_empty() {
+                                        return Ok(Some(clean.to_string()));
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. Check LRCLIB for line-by-line synced lyrics (or plain text fallback)
-    let lrclib_url = format!(
-        "https://lrclib.net/api/search?q={}",
-        urlencoding::encode(&clean_query)
-    );
-
-    if let Ok(resp) = client
-        .get(&lrclib_url)
-        .header("User-Agent", "Mewsic/0.7.2 (https://github.com/xeoniii/Mewsic)")
-        .send()
-        .await
-    {
-        if let Ok(data) = resp.json::<serde_json::Value>().await {
-            if let Some(results) = data.as_array() {
-                if !results.is_empty() {
-                    let best = &results[0];
-                    let synced = best.get("syncedLyrics").and_then(|v| v.as_str());
-                    let plain = best.get("plainLyrics").and_then(|v| v.as_str());
-
-                    if let Some(s) = synced {
-                        if !s.trim().is_empty() {
-                            return Ok(Some(s.to_string()));
-                        }
-                    }
-
-                    if let Some(p) = plain {
-                        if !p.trim().is_empty() {
-                            return Ok(Some(p.to_string()));
                         }
                     }
                 }
@@ -3701,10 +3487,10 @@ async fn import_spotify_playlist(
                 let comment = format!("mws-id:{}\nmws-provider:spotify", spotify_uri);
                 tag.insert_text(ItemKey::Comment, comment);
 
-                // Fetch and embed lyrics (word-by-word into .elrc sidecar, clean line LRC into MP3 tag)
+                // Fetch and embed lyrics (clean line LRC into MP3 tag)
                 let search_q = format!("{} {}", artist, title);
                 if let Ok(Some(lyrics_text)) = fetch_lyrics(search_q).await {
-                    handle_downloaded_lyrics(&target_path, &lyrics_text, tag);
+                    handle_downloaded_lyrics(&lyrics_text, tag);
                 }
 
                 // Embed cover art
@@ -3836,14 +3622,6 @@ fn main() {
                 }
             }
 
-            // ── Initialize Word Lyrics Directory ──────────────────────
-            if let Ok(audio_dir) = app.path().audio_dir() {
-                let lyrics_dir = audio_dir.join("Mewsic").join("WordLyrics");
-                let _ = fs::create_dir_all(&lyrics_dir);
-                if let Ok(mut lock) = WORD_LYRICS_DIR.lock() {
-                    *lock = Some(lyrics_dir);
-                }
-            }
 
             // ── Local Asset Server (tiny_http) ────────────────────────
             start_asset_server(1422);
@@ -4027,9 +3805,6 @@ fn main() {
             start_oauth_server,
             fetch_spotify_playlist,
             import_spotify_playlist,
-            save_word_lyrics,
-            load_word_lyrics,
-            delete_word_lyrics,
         ])
         .on_window_event(|window, event| {
             match event {

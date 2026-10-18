@@ -714,10 +714,6 @@ export function SettingsView() {
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Word by word lyrics support. (with manual syncing support and auto fetching)</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
                     <span>Updated Harbour API to allow for much faster download speeds.</span>
                   </li>
                   <li className="flex items-start gap-3">
@@ -731,6 +727,10 @@ export function SettingsView() {
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
                     <span>Fixed issues with resizing window and borders.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Changes to cover art loading.</span>
                   </li>
                 </ul>
               </div>

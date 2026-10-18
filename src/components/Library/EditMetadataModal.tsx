@@ -5,7 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
-import { saveTrackMetadata, saveWordLyrics, getCoverArt, fetchTrackMetadata } from "../../utils/tauriApi";
+import { saveTrackMetadata, getCoverArt, fetchTrackMetadata } from "../../utils/tauriApi";
 import type { Track } from "../../types";
 
 interface EditMetadataModalProps {
@@ -20,7 +20,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
   const [album, setAlbum] = useState(track.album);
   const [genre, setGenre] = useState(track.genre);
   const [year, setYear] = useState(track.year?.toString() ?? "");
-  const [lyrics, setLyrics] = useState(track.wordLyrics ?? track.lyrics ?? "");
+  const [lyrics, setLyrics] = useState(track.lyrics ?? "");
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [newCover, setNewCover] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -142,16 +142,6 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
     setSaving(true);
     setError(null);
     try {
-      const hasWordSync = lyrics ? /<(\d+):(\d{2})(?:\.(\d+))?>/.test(lyrics) : false;
-      let tagLyrics = lyrics;
-
-      if (hasWordSync && lyrics) {
-        // Save word-by-word lyrics to sidecar .elrc file (leaves MP3 clean)
-        await saveWordLyrics(track.filePath, track.id, lyrics);
-        // Strip <...> word tags so standard music players only see clean line LRC
-        tagLyrics = lyrics.replace(/<[^>]+>/g, "").replace(/  +/g, " ");
-      }
-
       await saveTrackMetadata(track.filePath, {
         title: title || undefined,
         artist: artist || undefined,
@@ -160,7 +150,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
         genre: genre || undefined,
         year: year ? parseInt(year, 10) : undefined,
         cover_art: newCover || undefined,
-        lyrics: tagLyrics || undefined,
+        lyrics: lyrics || undefined,
       });
 
       const updated: Track = {
@@ -170,8 +160,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
         album: album || track.album,
         genre: genre || track.genre,
         year: year ? parseInt(year, 10) : track.year,
-        lyrics: tagLyrics || undefined,
-        wordLyrics: hasWordSync ? lyrics : track.wordLyrics,
+        lyrics: lyrics || undefined,
       };
       updateTrack(updated);
       onClose();
@@ -290,13 +279,9 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
                   <FileText size={12} />
                   Lyrics
                 </label>
-                {lyrics && /<(\d+):(\d{2})(?:\.(\d+))?>/.test(lyrics) ? (
-                  <span className="text-[10px] text-accent font-bold bg-accent/15 px-2 py-0.5 rounded-full border border-accent/30">
-                    Word-Synced (.elrc)
-                  </span>
-                ) : lyrics && /\[\d+:\d{2}(?:\.\d+)?\]/.test(lyrics) ? (
+                {lyrics && /\[\d+:\d{2}(?:[.:]\d+)?\]/.test(lyrics) ? (
                   <span className="text-[10px] text-text-primary font-semibold bg-surface-raised px-2 py-0.5 rounded-full border border-border-subtle">
-                    Line-Synced
+                    Synced (LRC)
                   </span>
                 ) : lyrics ? (
                   <span className="text-[10px] text-text-muted font-medium bg-surface-raised/40 px-2 py-0.5 rounded-full">
@@ -320,7 +305,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 flex items-center gap-2"
                     >
                       <Globe size={12} />
-                      Search Online (Word/Line)
+                      Search Online
                     </button>
                     <button 
                       onClick={handleSelectLrcFile}
@@ -336,7 +321,7 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
             <textarea
               value={lyrics}
               onChange={(e) => setLyrics(e.target.value)}
-              placeholder="Lyrics content (LRC or Word-Synced ELRC supported)..."
+              placeholder="Lyrics content (LRC supported)..."
               className="w-full h-48 px-3 py-2 rounded-lg bg-surface-overlay border border-border-subtle text-text-primary text-xs outline-none focus:border-border-glass transition-colors resize-none font-mono scrollbar-hide"
             />
           </div>

@@ -13,7 +13,6 @@ export interface Track {
   fileSize: number;
   format: string;
   lyrics?: string;
-  wordLyrics?: string;
   dateAdded: number;
   sourceId?: string;
   provider?: string;

@@ -157,18 +157,6 @@ export async function saveTrackMetadata(filePath: string, metadata: TrackMetadat
   await invoke("save_track_metadata", { filePath, metadata: deepSnake(metadata) });
 }
 
-export async function saveWordLyrics(filePath: string, trackId: string, content: string): Promise<void> {
-  await invoke("save_word_lyrics", { filePath, trackId, content });
-}
-
-export async function loadWordLyrics(filePath: string, trackId: string): Promise<string | null> {
-  return invoke<string | null>("load_word_lyrics", { filePath, trackId });
-}
-
-export async function deleteWordLyrics(filePath: string, trackId: string): Promise<void> {
-  await invoke("delete_word_lyrics", { filePath, trackId });
-}
-
 const MAX_COVER_CACHE = 50;
 const CACHE_TTL = 30000;
 
@@ -190,12 +178,39 @@ setInterval(() => {
 
 export async function getCoverArt(filePath: string, size = 256, lowEnd = false): Promise<string | null> {
   if (!filePath) return null;
-  return `${convertFileSrc(filePath)}?thumb=1&size=${size}${lowEnd ? "&lowend=1" : ""}`;
+  if (filePath.startsWith("http://") || filePath.startsWith("https://") || filePath.startsWith("data:")) {
+    return filePath;
+  }
+  const cacheKey = `${filePath}_${size}_${lowEnd}`;
+  const cached = coverCache.get(cacheKey);
+  if (cached) {
+    cached.lastUsed = Date.now();
+    return cached.url;
+  }
+
+  try {
+    const result = await invoke<string | null>("get_cover_art", { filePath, size, lowEnd });
+    if (result) {
+      if (coverCache.size >= MAX_COVER_CACHE) {
+        const firstKey = coverCache.keys().next().value;
+        if (firstKey) coverCache.delete(firstKey);
+      }
+      coverCache.set(cacheKey, { url: result, lastUsed: Date.now() });
+      return result;
+    }
+  } catch (err) {
+    console.warn("Failed to get cover art:", err);
+  }
+  return null;
 }
 
 export function getCoverArtSync(filePath: string, size = 256, lowEnd = false): string | null {
   if (!filePath) return null;
-  return `${convertFileSrc(filePath)}?thumb=1&size=${size}${lowEnd ? "&lowend=1" : ""}`;
+  if (filePath.startsWith("http://") || filePath.startsWith("https://") || filePath.startsWith("data:")) {
+    return filePath;
+  }
+  const cacheKey = `${filePath}_${size}_${lowEnd}`;
+  return coverCache.get(cacheKey)?.url || null;
 }
 
 export function clearCoverCache() {
