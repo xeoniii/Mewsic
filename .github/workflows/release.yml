@@ -6,8 +6,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ─── Create Release (Single Draft) ─────────────────────────────────────────
+  create-release:
+    name: Create Release Draft
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure single release draft exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${{ github.ref_name }}"
+          echo "Target tag: $TAG, Version: $VERSION"
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release/draft for tag $TAG already exists."
+          else
+            echo "Creating single draft release for $TAG..."
+            gh release create "$TAG" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}"
+          fi
+
   # ─── Windows ───────────────────────────────────────────────────────────────
   release-windows:
+    needs: [create-release]
     permissions:
       contents: write
     runs-on: windows-latest
@@ -34,14 +60,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
-
-      - name: Ensure release draft exists
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
 
       # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
       - name: Build Slim app (Windows NSIS & MSI without bundled binaries)
@@ -168,6 +186,7 @@ jobs:
 
   # ─── macOS (ARM64) ─────────────────────────────────────────────────────────
   release-macos-arm:
+    needs: [create-release]
     permissions:
       contents: write
     runs-on: macos-latest
@@ -194,13 +213,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
-
-      - name: Ensure release draft exists
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
 
       # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
       - name: Build Slim app (macOS ARM64 without bundled binaries)
@@ -300,9 +312,10 @@ jobs:
 
   # ─── macOS (x86_64) ────────────────────────────────────────────────────────
   release-macos-x64:
+    needs: [create-release]
     permissions:
       contents: write
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
@@ -326,13 +339,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
-
-      - name: Ensure release draft exists
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
 
       # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
       - name: Build Slim app (macOS x86_64 without bundled binaries)
@@ -432,6 +438,7 @@ jobs:
 
   # ─── Linux (DEB + RPM) ─────────────────────────────────────────────────────
   release-linux:
+    needs: [create-release]
     permissions:
       contents: write
     runs-on: ubuntu-22.04
@@ -463,13 +470,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
-
-      - name: Ensure release draft exists
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release create "${{ github.ref_name }}" --draft --title "Mewsic v$VERSION" --notes "See the assets below to download the latest version of Mewsic." --repo "${{ github.repository }}" || true
 
       # 1. Build Slim version (NO yt-dlp, NO ffmpeg)
       - name: Build Slim app (Linux DEB, RPM, AppImage)
@@ -597,13 +597,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
           node -e '
             const fs = require("fs");
             const path = require("path");
 
+            let version = "";
+            try {
+              const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"));
+              version = pkg.version;
+            } catch (e) {
+              console.warn("Could not read package.json:", e);
+            }
+
+            if (!version) {
+              const tag = "${{ github.ref_name }}";
+              version = tag.replace(/^v/, "");
+            }
+
+            if (!version) {
+              console.error("FATAL: Could not determine release version!");
+              process.exit(1);
+            }
+
+            const pub_date = new Date().toISOString();
             const metaDir = "updater-meta";
             const platforms = {};
 
@@ -627,14 +643,14 @@ jobs:
             }
 
             const manifest = {
-              version: process.env.VERSION,
+              version,
               notes: "See the assets below to download the latest version of Mewsic.",
-              pub_date: process.env.PUB_DATE,
+              pub_date,
               platforms
             };
 
             fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2));
-            console.log("Generated latest.json:\n", JSON.stringify(manifest, null, 2));
+            console.log("Generated latest.json with version " + version + ":\n", JSON.stringify(manifest, null, 2));
           '
 
           gh release upload "${{ github.ref_name }}" "latest.json" --repo "${{ github.repository }}" --clobber
@@ -651,3 +667,11 @@ jobs:
               gh release delete-asset "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" -y || true
             fi
           done || true
+
+      - name: Publish the release
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Publishing release draft ${{ github.ref_name }}..."
+          gh release edit "${{ github.ref_name }}" --draft=false --repo "${{ github.repository }}"

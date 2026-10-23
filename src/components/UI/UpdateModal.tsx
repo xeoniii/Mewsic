@@ -47,7 +47,11 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
       
       let update;
       if (!mockVersion) {
-        update = await check();
+        try {
+          update = await check();
+        } catch (checkErr) {
+          console.warn("Tauri updater check failed, trying GitHub Releases API fallback:", checkErr);
+        }
       }
 
       if (update?.available) {
@@ -82,7 +86,7 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
               
               const comparison = compareSemver(currentVersion, remoteVersion);
               
-              if (mockVersion && comparison < 0) {
+              if (comparison < 0) {
                 setNewVersion(remoteVersion);
                 setStatus("available");
                 return;
