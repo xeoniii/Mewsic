@@ -341,16 +341,44 @@ export function useAudioPlayer() {
   // all dynamic state is read from refs or the store directly.
   useEffect(() => {
     let lastTimeWrite = 0;
+    let lastAudioTime = audio.currentTime;
+    let accumulatedListenTime = 0;
+
+    const flushListenTime = () => {
+      if (accumulatedListenTime >= 1.0) {
+        const curr = useStore.getState().currentTrack;
+        if (curr?.id) {
+          useStore.getState().addTrackListenDuration(curr.id, accumulatedListenTime);
+        }
+        accumulatedListenTime = 0;
+      }
+    };
 
     const onTimeUpdate = () => {
+      const curTime = audio.currentTime;
+      const timeDelta = curTime - lastAudioTime;
+      lastAudioTime = curTime;
+
       // while seeking, we already pushed the target into the store — don't overwrite it
       if (isSeekingRef.current) return;
       
       // Prevent GStreamer clock latency/stale events from overwriting the seek target in the store
       if (targetSeekTimeRef.current !== null) {
-        const diff = Math.abs(audio.currentTime - targetSeekTimeRef.current);
+        const diff = Math.abs(curTime - targetSeekTimeRef.current);
         if (diff > 2.0) return;
         targetSeekTimeRef.current = null;
+      }
+
+      // Track actual listened duration
+      if (timeDelta > 0 && timeDelta < 2.5) {
+        accumulatedListenTime += timeDelta;
+        if (accumulatedListenTime >= 3.0) {
+          const curr = useStore.getState().currentTrack;
+          if (curr?.id) {
+            useStore.getState().addTrackListenDuration(curr.id, accumulatedListenTime);
+          }
+          accumulatedListenTime = 0;
+        }
       }
 
       const now = performance.now();
@@ -369,6 +397,7 @@ export function useAudioPlayer() {
     };
 
     const onEnded = () => {
+      flushListenTime();
       // read from store directly to avoid stale closure on repeatMode
       const { repeatMode } = useStore.getState();
       if (repeatMode === "one") {
@@ -381,11 +410,17 @@ export function useAudioPlayer() {
     };
 
     const onPlay = () => {
+      lastAudioTime = audio.currentTime;
       isSwitchingTrackRef.current = false;
       setIsPlaying(true);
+      const curr = useStore.getState().currentTrack;
+      if (curr?.id) {
+        useStore.getState().recordTrackPlay(curr.id);
+      }
     };
 
     const onPause = () => {
+      flushListenTime();
       if (isSwitchingTrackRef.current) return;
       setIsPlaying(false);
     };

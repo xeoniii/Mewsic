@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { X, Puzzle, Box, Info, RefreshCw, FolderOpen, Power, Trash2, Sliders, Terminal, ExternalLink } from "lucide-react";
+import { X, Puzzle, Info, RefreshCw, FolderOpen, Power, Trash2, Sliders, Terminal, ExternalLink, FileText } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { useStore } from "../../store";
-import { usePlugins, type PluginData } from "../../hooks/usePlugins";
+import { usePlugins } from "../../hooks/usePlugins";
+import { PluginConfigForm } from "./PluginConfigForm";
 
 
 const DiscordIcon = () => (
@@ -20,7 +21,7 @@ const MinecraftIcon = () => (
 
 const MewsifyIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" className="text-white">
-    <path d="M17.9 10.9C14.7 9 9.35 8.8 6.3 9.75c-.5.15-1-.15-1.15-.6c-.15-.5.15-1 .6-1.15c3.55-1.05 9.4-.85 13.1 1.35c.45.25.6.85.35 1.3c-.25.35-.85.5-1.3.25m-.1 2.8c-.25.35-.7.5-1.05.25c-2.7-1.65-6.8-2.15-9.95-1.15c-.4.1-.85-.1-.95-.5s.1-.85.5-.95c3.65-1.1 8.15-.55 11.25 1.35c.3.15.45.65.2 1m-1.2 2.75c-.2.3-.55.4-.85.2c-2.35-1.45-5.3-1.75-8.8-.95c-.35.1-.65-.15-.75-.45c-.1-.35.15-.65.45-.75c3.8-.85 7.1-.5 9.7 1.1c.35.15.4.55.25.85M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2"/>
+    <path d="M17.9 10.9C14.7 9 9.35 8.8 6.3 9.75c-.5.15-1-.15-1.15-.6c-.15-.5.15-1 .6-1.15c3.55-1.05 9.4-.85 13.1 1.35c.45.25.6.85.35 1.3c-.25.35-.85.5-1.3.25m-.1 2.8c-.25.35-.7.5-1.05.25c-2.7-1.65-6.8-2.15-9.95-1.15c-.4.1-.85-.1-.95-.5s.1-.85.5-.95c3.65-1.1 8.15-.55 11.25 1.35c.3.15.45.65.2 1m-1.2 2.75c-.2.3-.55.4-.85.2c-2.35-1.45-5.3-1.75-8.8-.95c-.35.1-.65-.15-.75-.45c-.1-.35.15-.65.45-.75c3.8-.85 7.1-.5 9.7 1.1c.35.15.4.55.25.85M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2" />
   </svg>
 );
 
@@ -79,12 +80,25 @@ const BUILT_IN_PLUGINS = [
 export function PluginsView() {
   const [activeTab, setActiveTab] = useState<"builtin" | "external">("builtin");
   const [selectedPluginId, setSelectedPluginId] = useState<string>("discord-rpc");
-  const [selectedDetailTab, setSelectedDetailTab] = useState<"about" | "details" | "features">("about");
+  const [selectedDetailTab, setSelectedDetailTab] = useState<"about" | "config" | "details" | "features">("about");
   const [searchQuery, setSearchQuery] = useState("");
   const [disabledExternalPlugins, setDisabledExternalPlugins] = useState<string[]>([]);
 
   useEffect(() => {
     setDisabledExternalPlugins(JSON.parse(localStorage.getItem('mewsic_disabled_plugins') || '[]'));
+
+    const handleOpenDetails = (e: any) => {
+      if (e.detail?.pluginId) {
+        setSelectedPluginId(e.detail.pluginId);
+      }
+      if (e.detail?.tab) {
+        setSelectedDetailTab(e.detail.tab);
+      }
+    };
+    window.addEventListener("open-plugin-details" as any, handleOpenDetails);
+    return () => {
+      window.removeEventListener("open-plugin-details" as any, handleOpenDetails);
+    };
   }, []);
 
   const {
@@ -169,20 +183,28 @@ export function PluginsView() {
       isEnabled: builtinStates[p.id] ?? false,
       isDisabled: false
     })),
-    ...externalPlugins.map(p => ({
-      id: p.id,
-      name: p.manifest?.name ?? p.id,
-      version: p.manifest?.version ?? "1.0.0",
-      author: p.manifest?.author ?? "Unknown",
-      description: p.manifest?.description ?? "No description provided.",
-      icon: <Puzzle />,
-      accentColor: "#6366f1",
-      tags: p.manifest?.tags ?? ["External", "User Plugin"],
-      features: p.manifest?.features ?? ["Custom JavaScript execution", "Custom UI Styles (CSS)"],
-      type: "external" as const,
-      isEnabled: !disabledExternalPlugins.includes(p.id),
-      isDisabled: false
-    }))
+    ...externalPlugins.map(p => {
+      if (typeof window !== "undefined" && window.Mewsic?.config) {
+        const cfg = p.manifest?.config || p.manifest?.settings;
+        if (cfg && Array.isArray(cfg) && window.Mewsic.config.getSchema(p.id).length === 0) {
+          window.Mewsic.config.register(p.id, cfg);
+        }
+      }
+      return {
+        id: p.id,
+        name: p.manifest?.name ?? p.id,
+        version: p.manifest?.version ?? "1.0.0",
+        author: p.manifest?.author ?? "Unknown",
+        description: p.manifest?.description ?? "No description provided.",
+        icon: <Puzzle />,
+        accentColor: "#6366f1",
+        tags: p.manifest?.tags ?? ["External", "User Plugin"],
+        features: p.manifest?.features ?? ["Custom JavaScript execution", "Custom UI Styles (CSS)"],
+        type: "external" as const,
+        isEnabled: !disabledExternalPlugins.includes(p.id),
+        isDisabled: false
+      };
+    })
   ];
 
   // Filter plugins
@@ -209,9 +231,6 @@ export function PluginsView() {
 
         <div className="px-8 py-6 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-accent flex items-center justify-center shadow-accent">
-              <Puzzle size={20} color="#000" />
-            </div>
             <div>
               <h1 className="font-display font-bold text-2xl text-text-primary">Plugins</h1>
               <p className="text-text-muted text-sm mt-1">
@@ -222,17 +241,17 @@ export function PluginsView() {
         </div>
 
         {
-  // This is the content body: split layout part
-}
+          // This is the content body: split layout part
+        }
         <div className="flex flex-1 overflow-hidden min-h-0">
-          
+
           {
-  // This is the left column: sidebar list part
-}
+            // This is the left column: sidebar list part
+          }
           <div className="w-[320px] border-r border-border-subtle flex flex-col h-full bg-surface-base/10 flex-shrink-0">
             {
-  // This is the search and tabs part
-}
+              // This is the search and tabs part
+            }
             <div className="p-4 border-b border-border-subtle space-y-3">
               <div className="relative">
                 <input
@@ -250,19 +269,18 @@ export function PluginsView() {
               </div>
 
               {
-  // This is the tabs part
-}
+                // This is the tabs part
+              }
               <div className="flex bg-surface-raised/50 border border-white/5 p-0.5 rounded-xl">
                 <button
                   onClick={() => {
                     setActiveTab("builtin");
                     setSelectedPluginId("discord-rpc");
                   }}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-center transition-all ${
-                    activeTab === "builtin"
-                      ? "bg-accent text-black font-black"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-center transition-all ${activeTab === "builtin"
+                    ? "bg-accent text-black font-black"
+                    : "text-text-muted hover:text-text-primary"
+                    }`}
                 >
                   Built-in
                 </button>
@@ -275,11 +293,10 @@ export function PluginsView() {
                       setSelectedPluginId("");
                     }
                   }}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-center transition-all ${
-                    activeTab === "external"
-                      ? "bg-accent text-black font-black"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-center transition-all ${activeTab === "external"
+                    ? "bg-accent text-black font-black"
+                    : "text-text-muted hover:text-text-primary"
+                    }`}
                 >
                   External
                 </button>
@@ -287,8 +304,8 @@ export function PluginsView() {
             </div>
 
             {
-  // This is the list area part
-}
+              // This is the list area part
+            }
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {filteredPlugins.length === 0 ? (
                 <div className="text-center py-8 text-text-muted text-xs">No plugins found</div>
@@ -299,15 +316,14 @@ export function PluginsView() {
                     <button
                       key={p.id}
                       onClick={() => setSelectedPluginId(p.id)}
-                      className={`w-full p-3 rounded-xl flex gap-3 text-left transition-all ${
-                        isSelected
-                          ? "bg-accent/10 border border-white/10"
-                          : "border border-transparent hover:bg-surface-raised/40"
-                      }`}
+                      className={`w-full p-3 rounded-xl flex gap-3 text-left transition-all ${isSelected
+                        ? "bg-accent/10 border border-white/10"
+                        : "border border-transparent hover:bg-surface-raised/40"
+                        }`}
                     >
                       {
-  // This is the icon part
-}
+                        // This is the icon part
+                      }
                       <div
                         className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10 shadow-sm"
                         style={{ backgroundColor: `${p.accentColor}15` }}
@@ -318,21 +334,20 @@ export function PluginsView() {
                         })}
                       </div>
                       {
-  // This is the meta part
-}
+                        // This is the meta part
+                      }
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <p className={`text-xs font-bold truncate ${isSelected ? "text-accent" : "text-text-primary"}`}>
                             {p.name}
                           </p>
                           {p.isEnabled && !p.isDisabled && (
-                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                              p.id === "discord-rpc"
-                                ? (discordConnected ? "bg-green-400" : "bg-amber-500")
-                                : p.id === "minecraft-bridge"
+                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${p.id === "discord-rpc"
+                              ? (discordConnected ? "bg-green-400" : "bg-amber-500")
+                              : p.id === "minecraft-bridge"
                                 ? (minecraftConnected ? "bg-green-400" : "bg-amber-500")
                                 : "bg-green-400"
-                            }`} />
+                              }`} />
                           )}
                         </div>
                         <p className="text-[9px] text-text-muted mt-0.5 truncate">by {p.author}</p>
@@ -355,14 +370,14 @@ export function PluginsView() {
           </div>
 
           {
-  // This is the right column: detailed pane part
-}
+            // This is the right column: detailed pane part
+          }
           <div className="flex-1 flex flex-col h-full bg-surface-overlay/10">
             {selectedPlugin ? (
               <>
                 {
-  // This is the plugin detail header part
-}
+                  // This is the plugin detail header part
+                }
                 <div className="p-6 border-b border-border-subtle flex items-start justify-between gap-4 flex-shrink-0">
                   <div className="flex items-center gap-4">
                     <div
@@ -396,16 +411,14 @@ export function PluginsView() {
                               Active
                             </span>
                             {selectedPlugin.id === "discord-rpc" && (
-                              <span className={`ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
-                                discordConnected ? "text-green-400 bg-green-400/15" : "text-amber-400 bg-amber-400/15"
-                              }`}>
+                              <span className={`ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${discordConnected ? "text-green-400 bg-green-400/15" : "text-amber-400 bg-amber-400/15"
+                                }`}>
                                 {discordConnected ? "Connected" : "Disconnected"}
                               </span>
                             )}
                             {selectedPlugin.id === "minecraft-bridge" && (
-                              <span className={`ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
-                                minecraftConnected ? "text-green-400 bg-green-400/15" : "text-amber-400 bg-amber-400/15"
-                              }`}>
+                              <span className={`ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${minecraftConnected ? "text-green-400 bg-green-400/15" : "text-amber-400 bg-amber-400/15"
+                                }`}>
                                 {minecraftConnected ? "Connected" : "Disconnected"}
                               </span>
                             )}
@@ -421,8 +434,8 @@ export function PluginsView() {
                   </div>
 
                   {
-  // This is the actions (blockbench style buttons) part
-}
+                    // This is the actions (blockbench style buttons) part
+                  }
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <button
                       disabled={selectedPlugin.isDisabled}
@@ -439,18 +452,29 @@ export function PluginsView() {
                           addNotification?.(`Plugin ${selectedPlugin.name} ${selectedPlugin.isEnabled ? 'disabled' : 'enabled'}. Reload to apply.`, "info");
                         }
                       }}
-                      className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl transition-all border ${
-                        selectedPlugin.isDisabled
-                          ? "border-border-subtle bg-surface-overlay/20 text-text-muted/40 cursor-not-allowed"
-                          : selectedPlugin.isEnabled
+                      className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl transition-all border ${selectedPlugin.isDisabled
+                        ? "border-border-subtle bg-surface-overlay/20 text-text-muted/40 cursor-not-allowed"
+                        : selectedPlugin.isEnabled
                           ? "border-red-500/20 hover:border-red-500/40 bg-red-500/5 text-red-400 hover:bg-red-500/10 cursor-pointer"
                           : "border-green-500/20 hover:border-green-500/40 bg-green-500/5 text-green-400 hover:bg-green-500/10 cursor-pointer"
-                      }`}
+                        }`}
                     >
                       <Power size={18} />
                       <span className="text-[9px] font-black uppercase tracking-wider mt-1.5">
                         {selectedPlugin.isEnabled && !selectedPlugin.isDisabled ? "Disable" : "Enable"}
                       </span>
+                    </button>
+
+                    <button
+                      onClick={() => setSelectedDetailTab("config")}
+                      className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl border transition-all cursor-pointer ${selectedDetailTab === "config"
+                        ? "border-accent/40 bg-accent/10 text-accent shadow-sm"
+                        : "border-border-subtle hover:border-accent/30 bg-surface-raised/40 text-text-muted hover:text-text-primary"
+                        }`}
+                      title="Configure plugin settings"
+                    >
+                      <Sliders size={18} />
+                      <span className="text-[9px] font-black uppercase tracking-wider mt-1.5">Config</span>
                     </button>
 
                     {selectedPlugin.id === "minecraft-bridge" && selectedPlugin.isEnabled && (
@@ -507,20 +531,20 @@ export function PluginsView() {
                 </div>
 
                 {
-  // This is the sub tab selectors part
-}
+                  // This is the sub tab selectors part
+                }
                 <div className="flex gap-4 px-6 pt-3 border-b border-border-subtle flex-shrink-0">
                   {([
                     { id: "about", label: "About", icon: <Info size={11} /> },
-                    { id: "details", label: "Details", icon: <Sliders size={11} /> },
+                    { id: "config", label: "Config", icon: <Sliders size={11} /> },
+                    { id: "details", label: "Details", icon: <FileText size={11} /> },
                     { id: "features", label: "Features", icon: <Terminal size={11} /> },
                   ] as const).map((t) => (
                     <button
                       key={t.id}
                       onClick={() => setSelectedDetailTab(t.id)}
-                      className={`pb-2 text-[10px] font-black uppercase tracking-widest relative flex items-center gap-1.5 transition-all ${
-                        selectedDetailTab === t.id ? "text-accent" : "text-text-muted hover:text-text-secondary"
-                      }`}
+                      className={`pb-2 text-[10px] font-black uppercase tracking-widest relative flex items-center gap-1.5 transition-all cursor-pointer ${selectedDetailTab === t.id ? "text-accent" : "text-text-muted hover:text-text-secondary"
+                        }`}
                     >
                       {t.icon}
                       {t.label}
@@ -530,9 +554,13 @@ export function PluginsView() {
                 </div>
 
                 {
-  // This is the inner tab panels part
-}
+                  // This is the inner tab panels part
+                }
                 <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                  {selectedDetailTab === "config" && (
+                    <PluginConfigForm pluginId={selectedPlugin.id} />
+                  )}
+
                   {selectedDetailTab === "about" && (
                     <div className="space-y-4 text-xs">
                       {selectedPlugin.description && (
@@ -541,7 +569,7 @@ export function PluginsView() {
                           <p className="text-text-secondary leading-relaxed">{selectedPlugin.description}</p>
                         </div>
                       )}
-                      
+
                       {selectedPlugin.isDisabled && (
                         <p className="text-[11px] text-amber-500/95 italic bg-amber-500/5 border border-amber-500/10 p-3 rounded-xl">
                           This plugin is currently in development and is not ready for general use.
@@ -619,8 +647,8 @@ export function PluginsView() {
         </div>
 
         {
-  // This is the footer section
-}
+          // This is the footer section
+        }
         <div className="px-7 py-4 border-t border-border-subtle flex items-center justify-between flex-shrink-0">
           <p className="text-[10px] text-text-muted italic">
             Built-in plugin changes require a reload to take effect.

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { Crosshair, RotateCcw, RefreshCw } from 'lucide-react';
 
 interface SpatialPannerProps {

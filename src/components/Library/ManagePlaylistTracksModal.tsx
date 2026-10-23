@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { X, Search, CheckCircle2, Circle, Music2 } from "lucide-react";
 import { List as VList } from "react-window";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "../../hooks/useLibrary";
-import type { Track, Playlist } from "../../types";
+import type { Playlist } from "../../types";
 
 interface ManagePlaylistTracksModalProps {
   playlist: Playlist;

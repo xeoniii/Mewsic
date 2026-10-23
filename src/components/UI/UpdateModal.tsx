@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { RefreshCw, DownloadCloud, CheckCircle2, X, AlertCircle, Rocket, Sparkles, ChevronDown, Check } from "lucide-react";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";

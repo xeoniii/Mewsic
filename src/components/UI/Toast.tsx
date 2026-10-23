@@ -1,4 +1,3 @@
-import React from "react";
 import { CheckCircle2, Info, XCircle, X, Loader2 } from "lucide-react";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";

@@ -1,9 +1,8 @@
 import React, { useState, useEffect, memo } from "react";
-import { Play, PlusCircle, MinusCircle, Pencil, Trash2 } from "lucide-react";
+import { Play } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useStore } from "../../store";
-import { useShallow } from "zustand/react/shallow";
 import { formatDuration, stringToColor } from "../../utils/helpers";
 import { getCoverArt } from "../../utils/tauriApi";
 import type { Track } from "../../types";
@@ -120,10 +119,7 @@ export const MusicCard = memo(function MusicCard({
   allTracks,
   trackIndex,
   viewMode = "grid",
-  onAddToPlaylist,
   onRemoveFromPlaylist,
-  onEditMetadata,
-  onDelete,
   dragHandleProps,
   sourceId = null,
 }: MusicCardProps) {

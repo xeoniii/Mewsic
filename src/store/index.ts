@@ -10,7 +10,6 @@ import type {
   Playlist,
   AccentPreset,
   ViewId,
-  AppSettings,
   Notification,
   ShortcutMap,
   AudioPreset,
@@ -74,6 +73,10 @@ interface LibrarySlice {
   setDiscordCoverCache: (id: string, url: string) => void;
   removeTrack: (id: string) => void;
   purgeVirtualTracks: () => void;
+  trackPlayCounts: Record<string, number>;
+  recordTrackPlay: (id: string) => void;
+  trackListenDurations: Record<string, number>;
+  addTrackListenDuration: (id: string, seconds: number) => void;
 }
 
 // ── UI / Settings Slice ──────────────────────────────────────────────────────
@@ -120,6 +123,8 @@ interface UISlice {
   showCyberdeck: boolean;
   isDemoMode: boolean;
   isDevMode: boolean;
+  revampedHome: boolean;
+  revampedHarbour: boolean;
   reverbEnabled: boolean;
   reverbStrength: number;
   playbackSpeed: number;
@@ -180,6 +185,8 @@ interface UISlice {
   setRenamePresetId: (id: string | null) => void;
   setDemoMode: (v: boolean) => void;
   setDevMode: (v: boolean) => void;
+  setRevampedHome: (v: boolean) => void;
+  setRevampedHarbour: (v: boolean) => void;
   setReverbEnabled: (v: boolean) => void;
   setReverbStrength: (v: number) => void;
   setPlaybackSpeed: (v: number) => void;
@@ -282,7 +289,7 @@ export const useStore = create<Store>()(
               isPlaying: true,
             });
           } else {
-            set({ 
+            set({
               queue: [],
               originalQueue: [],
               queueIndex: 0,
@@ -363,6 +370,28 @@ export const useStore = create<Store>()(
       playlistsDir: "",
       coversDir: "",
       discordCoverCache: {},
+      trackPlayCounts: {},
+      trackListenDurations: {},
+
+      recordTrackPlay: (id: string) => {
+        if (!id) return;
+        set((s) => ({
+          trackPlayCounts: {
+            ...s.trackPlayCounts,
+            [id]: (s.trackPlayCounts[id] || 0) + 1,
+          },
+        }));
+      },
+
+      addTrackListenDuration: (id: string, seconds: number) => {
+        if (!id || seconds <= 0) return;
+        set((s) => ({
+          trackListenDurations: {
+            ...s.trackListenDurations,
+            [id]: Math.round(((s.trackListenDurations && s.trackListenDurations[id]) || 0) + seconds),
+          },
+        }));
+      },
 
       setTracks: (tracks) =>
         set((s) => {
@@ -569,6 +598,8 @@ export const useStore = create<Store>()(
       renamePresetId: null,
       isDemoMode: false,
       isDevMode: false,
+      revampedHome: false,
+      revampedHarbour: false,
       reverbEnabled: false,
       reverbStrength: 0.5,
       playbackSpeed: 1.0,
@@ -766,6 +797,8 @@ export const useStore = create<Store>()(
         invoke("set_dev_mode", { enabled: v }).catch(() => { });
         set({ isDevMode: v });
       },
+      setRevampedHome: (v) => set({ revampedHome: v }),
+      setRevampedHarbour: (v) => set({ revampedHarbour: v }),
       setReverbEnabled: (v) => set({ reverbEnabled: v }),
       setReverbStrength: (v) => set({ reverbStrength: v }),
       setPlaybackSpeed: (v) => set({ playbackSpeed: Math.max(0.5, Math.min(v, 2.0)) }),
@@ -936,6 +969,11 @@ export const useStore = create<Store>()(
         smoothScrollEnabled: s.smoothScrollEnabled,
         minecraftIntegrationEnabled: s.minecraftIntegrationEnabled,
         mewsifyIntegrationEnabled: s.mewsifyIntegrationEnabled,
+        isDevMode: s.isDevMode,
+        revampedHome: s.revampedHome,
+        revampedHarbour: s.revampedHarbour,
+        trackPlayCounts: s.trackPlayCounts,
+        trackListenDurations: s.trackListenDurations,
       }),
     }
   )

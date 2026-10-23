@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Search, Download, Music, Loader2, Globe, AlertCircle, ChevronDown, Check, Terminal, Youtube, Link as LinkIcon, Send, FileAudio, FileVideo, Zap, PlusCircle } from "lucide-react";
+import { Search, Download, Music, Loader2, Globe, AlertCircle, ChevronDown, Check, Terminal, Link as LinkIcon, Send, FileAudio, FileVideo, Zap, PlusCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useLibrary } from "../../hooks/useLibrary";
@@ -16,12 +16,14 @@ interface HarbourSearchResult {
   cover_art: string;
   url: string;
   preview_url?: string;
+  year?: number;
+  genre?: string;
 }
 
 export default function HarbourView() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<HarbourSearchResult[]>([]);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   useSmoothScroll(containerRef);
   const [loading, setLoading] = useState(false);
@@ -36,16 +38,15 @@ export default function HarbourView() {
   }, [provider]);
   const [preparing, setPreparing] = useState(true);
   const [showSecret, setShowSecret] = useState(false);
-  const { musicDir, addNotification, updateNotification, removeNotification, addPlaylist } = useStore(useShallow((s) => ({
+  const { musicDir, addNotification, updateNotification, removeNotification } = useStore(useShallow((s) => ({
     musicDir: s.musicDir,
     addNotification: s.addNotification,
     updateNotification: s.updateNotification,
     removeNotification: s.removeNotification,
-    addPlaylist: s.addPlaylist,
   })));
   const { rescanDirectory } = useLibrary();
 
-  const [dependencyProgress, setDependencyProgress] = useState<{ytdlp: number, ffmpeg: number}>({ytdlp: 0, ffmpeg: 0});
+  const [dependencyProgress, setDependencyProgress] = useState<{ ytdlp: number, ffmpeg: number }>({ ytdlp: 0, ffmpeg: 0 });
   const [currentDep, setCurrentDep] = useState<"yt-dlp" | "ffmpeg" | null>(null);
 
   const [customProviders, setCustomProviders] = useState<Array<{ id: string; name: string }>>([]);
@@ -170,7 +171,7 @@ export default function HarbourView() {
 
       if (query.trim().startsWith("MWS-")) {
         let rawCode = query.trim().substring(4);
-        
+
         // Check for provider prefix like MWS-jiosaavn:Title - Artist
         if (rawCode.includes(":") && !rawCode.startsWith("http")) {
           const parts = rawCode.split(":");
@@ -222,9 +223,9 @@ export default function HarbourView() {
       const customProv = window.Mewsic?.ui?.registry?.searchProviders?.get(provider);
       if (customProv && customProv.download) {
         await customProv.download(track, musicDir, (progress: number) => {
-          updateNotification(notifId, { 
-            message: `Downloading... ${progress.toFixed(0)}%`, 
-            loading: true 
+          updateNotification(notifId, {
+            message: `Downloading... ${progress.toFixed(0)}%`,
+            loading: true
           });
         });
         updateNotification(notifId, { message: "Download complete!", type: "success", loading: false });
@@ -236,9 +237,9 @@ export default function HarbourView() {
       unlisten = await listen("download-progress", (event: any) => {
         const { id, progress } = event.payload;
         if (id === notifId) {
-          updateNotification(notifId, { 
-            message: `Downloading... ${progress.toFixed(0)}%`, 
-            loading: true 
+          updateNotification(notifId, {
+            message: `Downloading... ${progress.toFixed(0)}%`,
+            loading: true
           });
         }
       });
@@ -253,6 +254,8 @@ export default function HarbourView() {
         provider,
         url: track.url,
         trackId: track.id,
+        genre: track.genre,
+        year: track.year,
       });
       updateNotification(notifId, { message: "Download complete!", type: "success", loading: false });
       setTimeout(() => removeNotification(notifId), 3000);
@@ -279,12 +282,12 @@ export default function HarbourView() {
         <div className="text-center">
           <p className="text-lg font-medium text-text-primary">Preparing Harbour</p>
           <p className="text-sm">Downloading latest discovery tools...</p>
-          
+
           {currentDep && (
             <div className="mt-8 flex flex-col items-center gap-3">
               <div className="w-64 h-2 bg-surface-raised border border-border-subtle rounded-full overflow-hidden shadow-inner">
-                <div 
-                  className="h-full bg-accent transition-all duration-300 shadow-[0_0_10px_var(--accent-glow)]" 
+                <div
+                  className="h-full bg-accent transition-all duration-300 shadow-[0_0_10px_var(--accent-glow)]"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -303,13 +306,10 @@ export default function HarbourView() {
     <div className="flex-1 flex flex-col h-full bg-surface-base text-text-primary overflow-hidden page relative">
       {showSecret && <SecretMenu onClose={() => setShowSecret(false)} />}
       {
-  // This is the header section
-}
+        // This is the header section
+      }
       <header className="p-4 md:p-6 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-border-subtle bg-surface-base/50 backdrop-blur-md sticky top-0 z-10 min-w-0">
         <div className="flex items-center gap-3 min-w-0 shrink-0">
-          <div className="w-10 h-10 rounded-xl bg-accent-muted flex items-center justify-center text-accent flex-shrink-0 border border-white/5">
-            <Globe size={24} />
-          </div>
           <div className="min-w-0 flex-1 pr-4">
             <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Harbour Engine</h1>
             <p className="text-xs md:text-sm text-text-muted truncate">Global music ingestion and discovery</p>
@@ -330,7 +330,7 @@ export default function HarbourView() {
 
           <div className="flex items-center gap-2 shrink-0">
             <ProviderSelector provider={provider} setProvider={setProvider} providers={providers} />
-            
+
             <button
               type="submit"
               disabled={loading}
@@ -348,8 +348,8 @@ export default function HarbourView() {
       </header>
 
       {
-  // Here is the main content
-}
+        // Here is the main content
+      }
       <div ref={containerRef} className="flex-1 overflow-y-auto p-6">
         {loading && results.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-text-muted">
@@ -382,9 +382,9 @@ export default function HarbourView() {
                 <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden flex-shrink-0 bg-surface-base shadow-inner">
                   {track.cover_art ? (
                     <>
-                      <img 
-                        src={track.cover_art} 
-                        alt={track.title} 
+                      <img
+                        src={track.cover_art}
+                        alt={track.title}
                         loading="lazy"
                         decoding="async"
                         className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500"
@@ -398,9 +398,9 @@ export default function HarbourView() {
                       </div>
                     </>
                   ) : (
-                      <div className="w-full h-full flex items-center justify-center text-text-muted">
-                        <Music size={24} />
-                      </div>
+                    <div className="w-full h-full flex items-center justify-center text-text-muted">
+                      <Music size={24} />
+                    </div>
                   )}
                   {downloadingIds.has(track.id) && (
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
@@ -419,7 +419,7 @@ export default function HarbourView() {
                     <span>{track.album}</span>
                   </p>
                 </div>
-                
+
                 {track.duration > 0 && (
                   <div className="hidden sm:block text-[10px] font-black uppercase tracking-widest text-text-muted/60 tabular-nums px-3 py-1.5 rounded-lg bg-white/5 border border-white/5">
                     {Math.floor(track.duration / 60)}:{String(Math.floor(track.duration % 60)).padStart(2, '0')}
@@ -509,11 +509,10 @@ function ProviderSelector({ provider, setProvider, providers }: ProviderSelector
                 setProvider(p.id);
                 setIsOpen(false);
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${
-                provider === p.id 
-                  ? 'bg-accent/10 text-accent font-bold' 
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${provider === p.id
+                  ? 'bg-accent/10 text-accent font-bold'
                   : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
-              }`}
+                }`}
             >
               <div className="flex items-center gap-2">
                 <span>{p.name}</span>
@@ -600,7 +599,7 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
               <p className="text-[10px] text-text-muted uppercase tracking-[0.2em] font-black">Advanced Media Ingestion</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="w-8 h-8 rounded-full hover:bg-white/5 flex items-center justify-center text-text-muted transition-colors"
           >
@@ -610,15 +609,15 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
 
         <div className="p-8 space-y-6 overflow-y-auto max-h-[75vh] scrollbar-thin">
           {
-  // This is the url input part
-}
+            // This is the url input part
+          }
           <div className="space-y-3">
             <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
               Source URL / Identifier
             </label>
             <div className="relative group">
               <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-accent transition-colors" size={18} />
-              <input 
+              <input
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -630,21 +629,21 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
 
           <div className="grid grid-cols-2 gap-4">
             {
-  // This is the format selection part
-}
+              // This is the format selection part
+            }
             <div className="space-y-3">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
                 Output Format
               </label>
               <div className="flex p-1 bg-black/40 border border-white/10 rounded-xl">
-                <button 
+                <button
                   onClick={() => setFormat("mp3")}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${format === "mp3" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
                 >
                   <FileAudio size={14} />
                   MP3
                 </button>
-                <button 
+                <button
                   onClick={() => setFormat("mp4")}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${format === "mp4" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
                 >
@@ -655,20 +654,20 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
             </div>
 
             {
-  // This is the ip version selection part
-}
+              // This is the ip version selection part
+            }
             <div className="space-y-3">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
                 Network Protocol
               </label>
               <div className="flex p-1 bg-black/40 border border-white/10 rounded-xl">
-                <button 
+                <button
                   onClick={() => setIpVersion("ipv4")}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${ipVersion === "ipv4" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
                 >
                   IPv4
                 </button>
-                <button 
+                <button
                   onClick={() => setIpVersion("ipv6")}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${ipVersion === "ipv6" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
                 >
@@ -692,13 +691,13 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="flex items-center gap-3 pt-2">
-            <button 
+            <button
               onClick={onClose}
               className="px-6 py-3 rounded-xl border border-white/10 text-xs font-bold text-text-muted hover:bg-white/5 transition-all"
             >
               Cancel
             </button>
-            <button 
+            <button
               onClick={handleManualDownload}
               disabled={!url.trim() || isProcessing}
               className="flex-1 bg-accent hover:bg-accent/80 disabled:opacity-30 text-black font-black text-xs uppercase tracking-[0.1em] py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/10 active:scale-[0.98]"
@@ -709,8 +708,8 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
           </div>
 
           {
-  // This is the terminal view part
-}
+            // This is the terminal view part
+          }
           <div className="space-y-3">
             <div className="flex items-center justify-between ml-1">
               <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">
@@ -720,7 +719,7 @@ function SecretMenu({ onClose }: { onClose: () => void }) {
                 <button onClick={() => setLogs([])} className="text-[9px] text-accent/60 hover:text-accent font-bold uppercase tracking-widest">Clear</button>
               )}
             </div>
-            <div 
+            <div
               ref={logContainerRef}
               className="h-48 bg-black/60 border border-white/5 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto scrollbar-thin selection:bg-accent/30"
             >

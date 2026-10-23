@@ -1,9 +1,8 @@
-import React, { useMemo, useEffect, useRef } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { MusicCard } from "../Dashboard/MusicCard";
 import { ListVideo } from "lucide-react";
-import { formatDuration } from "../../utils/helpers";
 import type { Track } from "../../types";
 import {
   DndContext,
@@ -15,7 +14,6 @@ import {
   DragEndEvent,
 } from "@dnd-kit/core";
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
@@ -25,14 +23,12 @@ import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 
 export function QueueView() {
-  const { queue, queueIndex, currentTrack, isPlaying, setQueue, setIsPlaying } = useStore(
+  const { queue, queueIndex, currentTrack, setQueue } = useStore(
     useShallow((s) => ({
       queue: s.queue,
       queueIndex: s.queueIndex,
       currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
       setQueue: s.setQueue,
-      setIsPlaying: s.setIsPlaying,
     }))
   );
 

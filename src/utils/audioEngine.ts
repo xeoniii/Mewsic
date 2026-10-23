@@ -27,8 +27,6 @@ let currentPanAuto = false;
 let autoPanInterval: ReturnType<typeof setInterval> | null = null;
 let autoPanAngle = 0;
 
-let suspendTimeout: ReturnType<typeof setTimeout> | null = null;
-
 try {
   audioInstance = new Audio();
   audioInstance.preload = "auto";

@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef, memo } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, memo } from "react";
 import {
-  Play, Shuffle, Trash2, Music2, ListMusic, MinusCircle, PlusCircle, Pencil, Share2, Download, List, LayoutGrid, Plus
+  Play, Shuffle, Trash2, Music2, ListMusic, PlusCircle, Pencil, Share2, Download, List, LayoutGrid, Plus
 } from "lucide-react";
 import {
   DndContext,
@@ -21,12 +21,11 @@ import {
 import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
-import { MusicCard, SortableMusicCard } from "../Dashboard/MusicCard";
+import { SortableMusicCard } from "../Dashboard/MusicCard";
 import { downloadTrack, importFiles, getCoverArt, getCoverArtSync } from "../../utils/tauriApi";
 import { listen } from "@tauri-apps/api/event";
 import { useLibrary } from "../../hooks/useLibrary";
 import { formatDuration, pluralize, shuffleArray } from "../../utils/helpers";
-import { AddToPlaylistModal } from "./AddToPlaylistModal";
 import { ManagePlaylistTracksModal } from "./ManagePlaylistTracksModal";
 import { EditPlaylistModal } from "./EditPlaylistModal";
 import type { Playlist, Track } from "../../types";
@@ -156,7 +155,6 @@ export function PlaylistView() {
     addNotification,
     updateNotification,
     removeNotification,
-    addTracks,
     setActivePlaylist,
     setShowCreatePlaylist,
     setShowImportPlaylist,
@@ -174,8 +172,6 @@ export function PlaylistView() {
       addNotification: s.addNotification,
       updateNotification: s.updateNotification,
       removeNotification: s.removeNotification,
-      addTracks: s.addTracks,
-      updateTrack: s.updateTrack,
       setActivePlaylist: s.setActivePlaylist,
       setShowCreatePlaylist: s.setShowCreatePlaylist,
       setShowImportPlaylist: s.setShowImportPlaylist,
@@ -187,7 +183,6 @@ export function PlaylistView() {
     removePlaylistData, 
     removeTrackFromPlaylist, 
     updatePlaylistData, 
-    renamePlaylist,
     rehydratePlaylist
   } = useLibrary();
 

@@ -1,13 +1,24 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
+import { PluginConfigForm } from "../Plugins/PluginConfigForm";
 
 export function PluginView({ viewId }: { viewId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const isDirectConfigView = viewId.startsWith("plugin-config:") || viewId.startsWith("config:");
+  const directPluginId = isDirectConfigView ? viewId.replace(/^plugin-config:|^config:/, "") : null;
 
   useEffect(() => {
+    if (isDirectConfigView) return;
     if (!containerRef.current) return;
     let attempts = 0;
     let cleanupFn: (() => void) | undefined;
     let rendered = false;
+
+    // Infer plugin ID from viewId format: "plugin:<pluginId>" or "plugin:<pluginId>:<view>"
+    let inferredPluginId = "";
+    if (viewId.startsWith("plugin:")) {
+      const parts = viewId.slice(7).split(":");
+      inferredPluginId = parts[0] || "";
+    }
 
     function tryRender() {
       if (rendered || !containerRef.current) return;
@@ -42,7 +53,18 @@ export function PluginView({ viewId }: { viewId: string }) {
 
       rendered = true;
       containerRef.current.innerHTML = "";
-      viewConfig.render(containerRef.current);
+
+      const context = {
+        viewId,
+        pluginId: inferredPluginId,
+        config: inferredPluginId && mewsic.config ? mewsic.config.getAll(inferredPluginId) : {},
+        getConfig: (key?: string) => inferredPluginId && mewsic.config ? mewsic.config.get(inferredPluginId, key) : undefined,
+        setConfig: (key: string, val: any) => inferredPluginId && mewsic.config?.set(inferredPluginId, key, val),
+        onConfigChange: (cb: (cfg: any, key?: string) => void) =>
+          inferredPluginId && mewsic.config ? mewsic.config.onChange(inferredPluginId, cb) : () => {},
+      };
+
+      viewConfig.render(containerRef.current, context);
       cleanupFn = viewConfig.cleanup;
     }
 
@@ -54,7 +76,17 @@ export function PluginView({ viewId }: { viewId: string }) {
         try { cleanupFn(); } catch (e) {}
       }
     };
-  }, [viewId]);
+  }, [viewId, isDirectConfigView]);
+
+  if (isDirectConfigView && directPluginId) {
+    return (
+      <div className="w-full h-full p-8 overflow-y-auto">
+        <div className="max-w-2xl mx-auto">
+          <PluginConfigForm pluginId={directPluginId} />
+        </div>
+      </div>
+    );
+  }
 
   return <div ref={containerRef} className="w-full h-full overflow-y-auto" />;
 }

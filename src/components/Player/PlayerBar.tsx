@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import { useCallback } from "react";
 import {
   Play, Pause, SkipBack, SkipForward, Repeat, Repeat1,
   Shuffle, Volume2, VolumeX, Volume1,
@@ -32,7 +32,6 @@ export function PlayerBar() {
     volume,
     repeatMode,
     shuffleEnabled,
-    setIsPlaying,
     setVolume,
     setRepeatMode,
     toggleShuffle,
@@ -50,7 +49,6 @@ export function PlayerBar() {
     volume: s.volume,
     repeatMode: s.repeatMode,
     shuffleEnabled: s.shuffleEnabled,
-    setIsPlaying: s.setIsPlaying,
     setVolume: s.setVolume,
     setRepeatMode: s.setRepeatMode,
     toggleShuffle: s.toggleShuffle,

@@ -117,3 +117,32 @@ export interface AudioPreset {
   panY: number;
   panAuto?: boolean;
 }
+
+export type PluginConfigFieldType =
+  | "string"
+  | "text"
+  | "number"
+  | "boolean"
+  | "select"
+  | "color"
+  | "password";
+
+export interface PluginConfigOption {
+  label: string;
+  value: any;
+}
+
+export interface PluginConfigField {
+  key: string;
+  label: string;
+  type: PluginConfigFieldType;
+  description?: string;
+  default?: any;
+  placeholder?: string;
+  options?: Array<PluginConfigOption | string>;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export type PluginConfigSchema = PluginConfigField[];

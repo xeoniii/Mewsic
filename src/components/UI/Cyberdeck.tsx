@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Terminal, Cpu, HardDrive, Trash2, RefreshCw, X, Command } from "lucide-react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
+import { Terminal, Cpu, HardDrive, X, Command } from "lucide-react";
 import { useStore } from "../../store";
 import { useLibrary } from "../../hooks/useLibrary";
-import { clearImageCache, getOSName, savePlaylist } from "../../utils/tauriApi";
+import { clearImageCache, getOSName, savePlaylist, saveTrackMetadata } from "../../utils/tauriApi";
+import { invoke } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { version } from "../../../package.json";
 import type { Track } from "../../types";
 
 interface LogEntry {
   type: "info" | "success" | "error" | "input" | "component";
-  text: React.ReactNode;
+  text: ReactNode;
 }
 export function Cyberdeck({ onClose }: { onClose: () => void }) {
   const [input, setInput] = useState("");
@@ -20,28 +21,25 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const {
-    tracks, playlists, accentColor, setAccentColor, isPlaying, setIsPlaying, skipForward, skipBackward, playNext, playPrev,
-    volume, setVolume, shuffleEnabled, toggleShuffle, repeatMode, setRepeatMode,
+    tracks, playlists, accentColor, setAccentColor, isPlaying, setIsPlaying, playNext, playPrev,
+    volume, setVolume,
     toggleMute, theme, setTheme, guiScale, setGuiScale,
-    trayEnabled, setTrayEnabled, customTitlebar, setCustomTitlebar,
-    discordEnabled, setDiscordEnabled, lowEndMode, setLowEndMode,
-    systemNotifications, setSystemNotifications,
-    musicDir, setMusicDir, playlistsDir, setPlaylistsDir, coversDir, setCoversDir,
-    isDemoMode, setDemoMode,
-    isDevMode, setDevMode,
+    setTrayEnabled, setCustomTitlebar,
+    setDiscordEnabled, setLowEndMode,
+    setSystemNotifications,
+    setDemoMode,
+    setDevMode,
     purgeVirtualTracks
   } = useStore(useShallow((s) => ({
     tracks: s.tracks, playlists: s.playlists, accentColor: s.accentColor, setAccentColor: s.setAccentColor,
-    isPlaying: s.isPlaying, setIsPlaying: s.setIsPlaying, skipForward: s.skipForward, skipBackward: s.skipBackward,
+    isPlaying: s.isPlaying, setIsPlaying: s.setIsPlaying,
     playNext: s.playNext, playPrev: s.playPrev, volume: s.volume, setVolume: s.setVolume,
-    shuffleEnabled: s.shuffleEnabled, toggleShuffle: s.toggleShuffle, repeatMode: s.repeatMode, setRepeatMode: s.setRepeatMode,
     toggleMute: s.toggleMute, theme: s.theme, setTheme: s.setTheme, guiScale: s.guiScale, setGuiScale: s.setGuiScale,
-    trayEnabled: s.trayEnabled, setTrayEnabled: s.setTrayEnabled, customTitlebar: s.customTitlebar, setCustomTitlebar: s.setCustomTitlebar,
-    discordEnabled: s.discordEnabled, setDiscordEnabled: s.setDiscordEnabled, lowEndMode: s.lowEndMode, setLowEndMode: s.setLowEndMode,
-    systemNotifications: s.systemNotifications, setSystemNotifications: s.setSystemNotifications,
-    musicDir: s.musicDir, setMusicDir: s.setMusicDir, playlistsDir: s.playlistsDir, setPlaylistsDir: s.setPlaylistsDir,
-    coversDir: s.coversDir, setCoversDir: s.setCoversDir, isDemoMode: s.isDemoMode, setDemoMode: s.setDemoMode,
-    isDevMode: s.isDevMode, setDevMode: s.setDevMode,
+    setTrayEnabled: s.setTrayEnabled, setCustomTitlebar: s.setCustomTitlebar,
+    setDiscordEnabled: s.setDiscordEnabled, setLowEndMode: s.setLowEndMode,
+    setSystemNotifications: s.setSystemNotifications,
+    setDemoMode: s.setDemoMode,
+    setDevMode: s.setDevMode,
     purgeVirtualTracks: s.purgeVirtualTracks
   })));
   const { rescanDirectory } = useLibrary();
@@ -79,6 +77,7 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
         addLog("  CLEAR         - RESET TERMINAL LOGS");
         addLog("  REFRESHPLAYLIST - REGENERATE PLAYLIST FILES");
         addLog("  PURGE-VIRTUAL - REMOVE ALL VIRTUAL TRACKS FROM LIBRARY");
+        addLog("  FETCH-META [--ALL] - AUTO-FETCH MISSING YEAR & GENRE FOR ALL TRACKS");
         addLog("  EXIT / QUIT   - CLOSE");
         addLog("--- SETTINGS CONTROL ---");
         addLog("  SET <KEY> <VAL> - CONFIGURE APP");
@@ -278,6 +277,158 @@ export function Cyberdeck({ onClose }: { onClose: () => void }) {
         purgeVirtualTracks();
         addLog("VIRTUAL TRACKS PURGED SUCCESSFULLY.", "success");
         break;
+
+      case "fetch-meta":
+      case "fetch-metadata":
+      case "autotag": {
+        if (args[1] === "help") {
+          addLog("USAGE: FETCH-META [--ALL]");
+          addLog("SEARCHES ONLINE AUDIO CATALOGS (ITUNES/APPLE MUSIC) FOR RELEASE YEAR & GENRE.");
+          addLog("TAGS FILES ON DISK (ID3/VORBIS/MP4) AND SYNCS LOCAL LIBRARY STATE.");
+          addLog("OPTIONS:");
+          addLog("  --ALL / -F    FORCE RE-FETCH FOR ALL TRACKS EVEN IF YEAR/GENRE EXIST.");
+          break;
+        }
+
+        const forceAll = args.includes("--all") || args.includes("-f");
+        const candidates = tracks.filter((t) => {
+          if (t.isVirtual || !t.filePath) return false;
+          if (forceAll) return true;
+          const hasYear = typeof t.year === "number" && t.year > 0;
+          const hasGenre = typeof t.genre === "string" && t.genre.trim().length > 0 && t.genre.toLowerCase() !== "unknown";
+          return !hasYear || !hasGenre;
+        });
+
+        if (candidates.length === 0) {
+          addLog("ALL TRACKS ALREADY HAVE RELEASE YEAR AND GENRE!", "success");
+          addLog("TIP: RUN 'FETCH-META --ALL' TO FORCE A COMPLETE RE-FETCH FOR EVERY SONG.", "info");
+          break;
+        }
+
+        addLog(`FOUND ${candidates.length} TRACK(S) REQUIRING METADATA ENRICHMENT.`, "info");
+        addLog("QUERYING ONLINE CATALOGS & WRITING ID3 TAGS IN PARALLEL...", "info");
+
+        let updatedCount = 0;
+        const total = candidates.length;
+
+        const cleanArtistName = (raw: string): string => {
+          let a = raw;
+          if (a.includes("·")) a = a.split("·")[0];
+          if (a.includes("•")) a = a.split("•")[0];
+          if (a.includes(",")) a = a.split(",")[0];
+          if (a.includes("&")) a = a.split("&")[0];
+          if (a.includes("/")) a = a.split("/")[0];
+          if (a.toLowerCase().includes(" feat.")) a = a.split(/feat\./i)[0];
+          if (a.toLowerCase().includes(" ft.")) a = a.split(/ft\./i)[0];
+          return a.replace(/\s*\(feat\..*?\)/i, "").trim();
+        };
+
+        const cleanTrackTitle = (raw: string): string => {
+          return raw
+            .replace(/#\w+/g, "")
+            .replace(/\(.*?(slowed|sped up|speed up|instrumental|remix|jersey|nightcore|karaoke|acoustic|official).*?\)/gi, "")
+            .replace(/\[.*?(slowed|sped up|speed up|instrumental|remix|jersey|nightcore|karaoke|acoustic|official).*?\]/gi, "")
+            .replace(/[•·]/g, "")
+            .trim();
+        };
+
+        const searchProvider = async (q: string, provider: "itunes" | "jiosaavn") => {
+          try {
+            return await invoke<Array<{
+              title: string;
+              artist: string;
+              album: string;
+              year?: number;
+              genre?: string;
+            }>>("harbour_search", { query: q, provider });
+          } catch {
+            return [];
+          }
+        };
+
+        // Sequential processing with polite pacing guarantees no burst rate-limiting
+        for (let i = 0; i < candidates.length; i++) {
+          const track = candidates[i];
+          const currentNum = i + 1;
+          const primaryArtist = cleanArtistName(track.artist);
+          const cleanedTitle = cleanTrackTitle(track.title);
+          const query = `${primaryArtist} ${cleanedTitle}`.trim();
+
+          try {
+            // Step 1: Query iTunes with Artist + Title
+            let results = await searchProvider(query, "itunes");
+
+            // Step 2: Fallback to iTunes with Title only if no result
+            if ((!results || results.length === 0) && cleanedTitle.length > 2) {
+              await new Promise((r) => setTimeout(r, 150));
+              results = await searchProvider(cleanedTitle, "itunes");
+            }
+
+            // Step 3: Fallback to JioSaavn if iTunes missed (e.g. rate limit, regional/indie/non-English)
+            if (!results || results.length === 0 || !results.some(r => r.year || r.genre)) {
+              await new Promise((r) => setTimeout(r, 150));
+              const saavnResults = await searchProvider(query, "jiosaavn");
+              if (saavnResults && saavnResults.length > 0) {
+                results = saavnResults;
+              }
+            }
+
+            // Step 4: Fallback to JioSaavn with Title only
+            if ((!results || results.length === 0 || !results.some(r => r.year || r.genre)) && cleanedTitle.length > 2) {
+              const saavnTitleResults = await searchProvider(cleanedTitle, "jiosaavn");
+              if (saavnTitleResults && saavnTitleResults.length > 0) {
+                results = saavnTitleResults;
+              }
+            }
+
+            const match = results?.find(r => r.year || (r.genre && r.genre !== "Unknown")) || results?.[0];
+
+            if (match) {
+              const newYear = match.year ?? track.year;
+              const newGenre = match.genre ?? track.genre;
+
+              if (newYear || (newGenre && newGenre !== "Unknown")) {
+                // Save to audio file tags on disk
+                await saveTrackMetadata(track.filePath, {
+                  genre: newGenre,
+                  year: newYear,
+                });
+
+                // Update store in memory
+                useStore.getState().updateTrack({
+                  ...track,
+                  genre: newGenre || track.genre,
+                  year: newYear ?? track.year,
+                });
+
+                updatedCount++;
+                addLog(
+                  `[${currentNum}/${total}] ${track.artist} - ${track.title} ➔ Year: ${newYear ?? "N/A"} | Genre: ${newGenre ?? "N/A"}`,
+                  "success"
+                );
+              } else {
+                addLog(`[${currentNum}/${total}] ${track.artist} - ${track.title} ➔ No year/genre found in catalogs`, "info");
+              }
+            } else {
+              addLog(`[${currentNum}/${total}] ${track.artist} - ${track.title} ➔ No match found`, "info");
+            }
+          } catch (err: any) {
+            addLog(`[${currentNum}/${total}] ${track.artist} - ${track.title} ➔ Error: ${err?.message || err}`, "error");
+          }
+
+          // Polite pacing delay between queries to stay safely under rate limits
+          if (i < candidates.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 350));
+          }
+        }
+
+        addLog("----------------------------------------", "info");
+        addLog(`METADATA ENRICHMENT COMPLETE! UPDATED ${updatedCount}/${total} TRACK(S).`, "success");
+        addLog("RE-INDEXING LOCAL LIBRARY...", "info");
+        await rescanDirectory();
+        addLog("LIBRARY METADATA FULLY SYNCHRONIZED.", "success");
+        break;
+      }
 
       case "play":
         setIsPlaying(true);

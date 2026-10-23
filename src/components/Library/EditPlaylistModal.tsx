@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from "react";
-import { X, Save, ListMusic, ImageIcon, Upload } from "lucide-react";
+import { X, Save, ImageIcon, Upload } from "lucide-react";
 import { useLibrary } from "../../hooks/useLibrary";
 import type { Playlist } from "../../types";
 import { getCoverArtSync } from "../../utils/tauriApi";

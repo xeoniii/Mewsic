@@ -1,4 +1,4 @@
-import React from "react";
+import { useEffect } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 interface ConfirmationModalProps {
@@ -20,7 +20,7 @@ export function ConfirmationModal({
   onCancel,
   variant = "info",
 }: ConfirmationModalProps) {
-  React.useEffect(() => {
+  useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.repeat) return;
       if (e.key === "Escape") onCancel();
@@ -28,16 +28,6 @@ export function ConfirmationModal({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onCancel]);
-
-  const accentClass = 
-    variant === "danger" ? "text-red-500 bg-red-500/10 border-red-500/20" :
-    variant === "warning" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" :
-    "text-accent bg-accent-muted border-accent/20";
-
-  const btnClass = 
-    variant === "danger" ? "bg-red-500 hover:bg-red-600 shadow-red-500/20" :
-    variant === "warning" ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20" :
-    "bg-accent hover:bg-accent/80 shadow-accent";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onCancel}>

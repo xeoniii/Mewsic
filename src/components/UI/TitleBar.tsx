@@ -1,4 +1,3 @@
-import React from "react";
 import { Minus, Square, X, Copy } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";

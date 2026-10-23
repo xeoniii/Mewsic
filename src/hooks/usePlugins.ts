@@ -14,14 +14,16 @@ function runMinecraftPlugin() {
   }
 
   function sanitizeTitle(title: string) {
-    return title.replace(/\s+/g, "_");
+    const normalize = window.Mewsic?.config?.get("minecraft-bridge", "normalizeTitles") ?? true;
+    return normalize ? title.replace(/\s+/g, "_") : title;
   }
 
   function connect() {
     if (window.Mewsic) window.Mewsic.minecraftConnected = false;
     window.dispatchEvent(new CustomEvent("minecraft-connection-changed", { detail: false }));
 
-    const ws = new WebSocket("ws://127.0.0.1:3012");
+    const port = window.Mewsic?.config?.get("minecraft-bridge", "port") ?? 3012;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     minecraftWs = ws;
 
     ws.onopen = () => {
@@ -667,6 +669,13 @@ export function usePlugins(isRoot = false) {
         const disabledPlugins: string[] = JSON.parse(localStorage.getItem("mewsic_disabled_plugins") || "[]");
 
         for (const plugin of loadedPlugins) {
+          if (window.Mewsic?.config) {
+            const cfg = plugin.manifest?.config || plugin.manifest?.settings;
+            if (cfg && Array.isArray(cfg) && window.Mewsic.config.getSchema(plugin.id).length === 0) {
+              window.Mewsic.config.register(plugin.id, cfg);
+            }
+          }
+
           if (disabledPlugins.includes(plugin.id)) continue;
 
           if (plugin.css_content) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   RotateCcw,
   ArrowLeft,
@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Info,
   Maximize2,
-  Minimize2,
   SkipBack,
   SkipForward,
   Save,
@@ -22,11 +21,11 @@ import { toggleFullscreen } from "../../utils/tauriApi";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "../../hooks/useLibrary";
-import type { Track, AudioPreset } from "../../types";
+import type { Track } from "../../types";
 import { EditPlaylistModal } from "../Library/EditPlaylistModal";
 
 interface ContextMenuItemProps {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;

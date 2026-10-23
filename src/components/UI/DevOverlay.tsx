@@ -26,7 +26,7 @@ export function DevOverlay() {
   // Dev Control Window State
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "modals" | "events" | "audio" | "visuals" | "statistics" | "log"
+    "modals" | "events" | "audio" | "visuals" | "features" | "statistics" | "log"
   >("modals");
   const [showBanner, setShowBanner] = useState(true);
 
@@ -106,8 +106,6 @@ export function DevOverlay() {
     setBassBoost,
     volumeBoost,
     setVolumeBoost,
-    panAuto,
-    setPanAuto,
     safeAudioMode,
     setSafeAudioMode,
     volume,
@@ -133,6 +131,8 @@ export function DevOverlay() {
     setPendingUpdateVersion,
     setShowUpdateModal,
     setShowSplashScreen,
+    revampedHarbour,
+    setRevampedHarbour,
   } = useStore();
 
   const { rescanDirectory } = useLibrary();
@@ -410,37 +410,16 @@ export function DevOverlay() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ color: "#88c0d0" }}>Mewsic Dev Control</span>
-              <span style={{ color: "#4c566a" }}>|</span>
-              <span style={{ color: "#e5e9f0", fontWeight: "normal" }}>Runtime Inspector</span>
+              <span style={{ color: "#88c0d0" }}>Mewsic Developer Panel</span>
+
             </div>
 
             <div
               style={{ display: "flex", alignItems: "center", gap: "8px" }}
               onMouseDown={(e) => e.stopPropagation()}
             >
-              <button
-                onClick={() => {
-                  setShowSplashScreen(true);
-                  addLog("Triggered Animated Loading Screen from titlebar");
-                }}
-                title="Trigger Animated Loading Screen"
-                style={{
-                  backgroundColor: "#243c57",
-                  border: "1px solid #3d6490",
-                  color: "#88c0d0",
-                  fontSize: "10px",
-                  padding: "1px 7px",
-                  cursor: "pointer",
-                  borderRadius: 0,
-                  outline: "none",
-                  fontWeight: "bold",
-                }}
-              >
-                ▶ Trigger Loading Screen
-              </button>
               <span style={{ fontSize: "10px", color: "#88c0d0", fontWeight: "normal" }}>
-                [HOME to close]
+                [Press HOME to close]
               </span>
               <button
                 onClick={() => setIsOpen(false)}
@@ -484,6 +463,7 @@ export function DevOverlay() {
               { id: "events", label: "Events & Toasts" },
               { id: "audio", label: "Audio & DSP" },
               { id: "visuals", label: "Views & Visuals" },
+              { id: "features", label: "Features(exp.)" },
               { id: "statistics", label: "Statistics" },
               { id: "log", label: "Log" },
             ].map((tab) => {
@@ -548,34 +528,6 @@ export function DevOverlay() {
                   )}
                 </div>
 
-                {/* 0. Featured: Animated Loading Screen */}
-                <div style={{ ...imguiBoxStyle, backgroundColor: "#15222e", borderColor: "#2b4c73" }}>
-                  <div style={{ ...imguiHeaderStyle, backgroundColor: "#1e3752", color: "#88c0d0" }}>
-                    <span>★ Animated Loading Sequence</span>
-                    <span style={{ color: "#ebcb8b", fontSize: "10px" }}>Brand Intro Animation</span>
-                  </div>
-                  <div style={{ padding: "8px", display: "flex", gap: "6px" }}>
-                    <button
-                      onClick={() => {
-                        setShowSplashScreen(true);
-                        addLog("Triggered Animated Loading Screen (Logo pop-in & slide-right reveal)");
-                      }}
-                      style={{
-                        ...imguiBtnStyle,
-                        flex: 1,
-                        backgroundColor: "#2b4c73",
-                        borderColor: "#4a7bb5",
-                        color: "#ffffff",
-                        fontWeight: "bold",
-                        padding: "7px 12px",
-                        fontSize: "12px",
-                      }}
-                    >
-                      ▶ Trigger Animated Loading Screen (Logo & Slide Right)
-                    </button>
-                  </div>
-                </div>
-
                 {/* 1. Updater Modals */}
                 <div style={imguiBoxStyle}>
                   <div style={imguiHeaderStyle}>Update System Dialogs</div>
@@ -598,7 +550,7 @@ export function DevOverlay() {
                         }}
                         style={{ ...imguiBtnStyle, flex: 1, backgroundColor: "#2b4c73", borderColor: "#3d6799", color: "#fff", fontWeight: "bold" }}
                       >
-                        Trigger Update Prompt (Nah / Update)
+                        Trigger Update Prompt
                       </button>
                       <button
                         onClick={() => {
@@ -773,7 +725,7 @@ export function DevOverlay() {
                       }}
                       style={{ ...imguiBtnStyle, color: "#88c0d0", borderColor: "#33557a", gridColumn: "span 2", padding: "6px" }}
                     >
-                      ▶ Replay Animated Loading Screen (Logo & Slide)
+                      Trigger Splash Screen Animation
                     </button>
                   </div>
                 </div>
@@ -912,7 +864,7 @@ export function DevOverlay() {
                   <div style={{ padding: "8px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
                     <button
                       onClick={() => {
-                        toggleFullscreen().catch(() => {});
+                        toggleFullscreen().catch(() => { });
                         addLog("Invoked toggleFullscreen()");
                       }}
                       style={imguiBtnStyle}
@@ -959,16 +911,6 @@ export function DevOverlay() {
                     >
                       Purge Virtual Tracks
                     </button>
-
-                    <button
-                      onClick={() => {
-                        setShowSplashScreen(true);
-                        addLog("Triggered Animated Loading Screen from system actions");
-                      }}
-                      style={{ ...imguiBtnStyle, color: "#88c0d0", borderColor: "#33557a" }}
-                    >
-                      Trigger Loading Animation
-                    </button>
                   </div>
                 </div>
               </div>
@@ -982,7 +924,7 @@ export function DevOverlay() {
                 {/* Transport Controls */}
                 <div style={imguiBoxStyle}>
                   <div style={imguiHeaderStyle}>
-                    <span>Media Transport</span>
+                    <span>Media Controls</span>
                     <span style={{ color: isPlaying ? "#a3be8c" : "#bf616a", fontSize: "10px" }}>
                       {isPlaying ? "PLAYING" : "PAUSED"}
                     </span>
@@ -1049,7 +991,7 @@ export function DevOverlay() {
 
                 {/* DSP Sliders */}
                 <div style={imguiBoxStyle}>
-                  <div style={imguiHeaderStyle}>WebAudio DSP Filters</div>
+                  <div style={imguiHeaderStyle}>Mewsic Audio Engine V3</div>
                   <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
                     <div>
                       <div style={{ display: "flex", justifyContent: "space-between", color: "#88c0d0" }}>
@@ -1084,7 +1026,7 @@ export function DevOverlay() {
                       <input
                         type="range"
                         min="0"
-                        max="1"
+                        max="2"
                         step="0.05"
                         value={reverbStrength}
                         disabled={!reverbEnabled}
@@ -1101,7 +1043,7 @@ export function DevOverlay() {
                       <input
                         type="range"
                         min="0"
-                        max="15"
+                        max="20"
                         step="1"
                         value={bassBoost}
                         onChange={(e) => setBassBoost(parseInt(e.target.value))}
@@ -1129,20 +1071,11 @@ export function DevOverlay() {
                       <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
                         <input
                           type="checkbox"
-                          checked={panAuto}
-                          onChange={(e) => setPanAuto(e.target.checked)}
-                          style={{ accentColor: "#88c0d0" }}
-                        />
-                        <span>bSpatialAutoPan</span>
-                      </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
                           checked={safeAudioMode}
                           onChange={(e) => setSafeAudioMode(e.target.checked)}
                           style={{ accentColor: "#88c0d0" }}
                         />
-                        <span>bSafeLimiter</span>
+                        <span>Engine Bypass</span>
                       </label>
                     </div>
                   </div>
@@ -1333,6 +1266,60 @@ export function DevOverlay() {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════════
+                TAB: EXPERIMENTAL FEATURES (Features(exp.))
+                ══════════════════════════════════════════════════════════════════ */}
+            {activeTab === "features" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={imguiBoxStyle}>
+                  <div style={imguiHeaderStyle}>
+                    <span>Experimental Features</span>
+                  </div>
+
+                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "space-between",
+                        padding: "10px 12px",
+                        backgroundColor: revampedHarbour ? "#1d2b3a" : "#171a21",
+                        border: revampedHarbour ? "1px solid #88c0d0" : "1px solid #2e3542",
+                        gap: "14px",
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontWeight: "bold", color: revampedHarbour ? "#88c0d0" : "#d8dee9", fontSize: "12px" }}>
+                            Revamped Harbour Page
+                          </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: "11px", color: "#707b8c", lineHeight: "1.4" }}>
+                          Switches the Harbour music discovery and downloader to the upcoming Redesigned version.
+                        </p>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingTop: "2px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={revampedHarbour}
+                            onChange={(e) => {
+                              const next = e.target.checked;
+                              setRevampedHarbour(next);
+                              addLog(`Experimental Feature: Revamped Harbour Page -> ${next ? "ENABLED" : "DISABLED"}`);
+                            }}
+                            style={{ accentColor: "#88c0d0", width: "16px", height: "16px", cursor: "pointer" }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             )}
 

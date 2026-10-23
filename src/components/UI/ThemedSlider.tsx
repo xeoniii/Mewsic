@@ -1,5 +1,4 @@
-import React, { useCallback, useState } from "react";
-import { formatDuration } from "../../utils/helpers";
+import { useCallback, useState } from "react";
 
 interface ThemedSliderProps {
   value: number;

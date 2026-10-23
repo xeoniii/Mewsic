@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { X, Save, ImageIcon, Search, Music, FileText, Globe } from "lucide-react";
+import { X, Save, ImageIcon, Search, FileText, Globe } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -66,6 +66,8 @@ export function EditMetadataModal({ track, onClose }: EditMetadataModalProps) {
         if (result.title) setTitle(result.title);
         if (result.artist) setArtist(result.artist);
         if (result.album && result.album !== "YouTube") setAlbum(result.album);
+        if (result.genre) setGenre(result.genre);
+        if (result.year) setYear(result.year.toString());
       }
     } catch (err) {
       setError("Failed to fetch metadata. Make sure you are connected to the internet.");

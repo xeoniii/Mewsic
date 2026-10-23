@@ -267,6 +267,8 @@ pub struct HarbourSearchResult {
     pub cover_art: String,
     pub url: String,
     pub preview_url: Option<String>,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
 }
 
 pub struct HarbourState {
@@ -380,8 +382,13 @@ fn parse_track(path: &Path) -> Result<Track, String> {
         )
     };
 
-    let date_added = fs::metadata(path)
-        .and_then(|m| m.modified())
+    let file_metadata = fs::metadata(path).ok();
+    // Prefer file creation time (btime / date added to disk) over modified time,
+    // so editing ID3 tags or online enrichment doesn't mark old tracks as "new discoveries".
+    let date_added = file_metadata
+        .as_ref()
+        .and_then(|m| m.created().ok())
+        .or_else(|| file_metadata.as_ref().and_then(|m| m.modified().ok()))
         .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
         .unwrap_or_default();
 
@@ -994,17 +1001,24 @@ fn clean_artist_name(artist: &str) -> String {
 }
 
 async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<Vec<HarbourSearchResult>, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .unwrap_or_default();
     let search_url = format!("https://www.jiosaavn.com/api.php?__call=autocomplete.get&_format=json&_marker=0&cc=in&includeMetaTags=1&query={}", urlencoding::encode(&query));
 
     let resp = client
         .get(search_url)
-        .header(reqwest::header::USER_AGENT, "Mozilla/5.0")
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .send()
         .await
         .map_err(|e| format!("JioSaavn search failed: {}", e))?;
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let resp_text = resp.text().await.unwrap_or_default();
+    let data: serde_json::Value = match serde_json::from_str(&resp_text) {
+        Ok(v) => v,
+        Err(_) => return youtube_search_fallback(app_handle, query).await,
+    };
     let mut results = Vec::new();
 
     if let Some(songs) = data["songs"]["data"].as_array() {
@@ -1034,6 +1048,14 @@ async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<
                 String::new()
             };
 
+            let year = s["more_info"]["year"]
+                .as_str()
+                .or_else(|| s["year"].as_str())
+                .and_then(|y| y.parse::<i32>().ok());
+            let genre = s["more_info"]["genre"]
+                .as_str()
+                .map(|g| clean_artist_name(g));
+
             results.push(HarbourSearchResult {
                 id: s["id"].as_str().unwrap_or_default().to_string(),
                 title: s["title"].as_str().unwrap_or_default().replace("&quot;", "\"").replace("&amp;", "&").replace("&#039;", "'"),
@@ -1043,6 +1065,8 @@ async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<
                 cover_art,
                 url: s["url"].as_str().unwrap_or_default().to_string(),
                 preview_url: s["more_info"]["vlink"].as_str().map(|v| v.to_string()),
+                year,
+                genre,
             });
         }
     }
@@ -1055,20 +1079,70 @@ async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<
 }
 
 async fn search_itunes(app_handle: tauri::AppHandle, query: String) -> Result<Vec<HarbourSearchResult>, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .unwrap_or_default();
+
+    let clean_q = clean_artist_name(&query);
+    let final_query = if clean_q.is_empty() { query.clone() } else { clean_q };
+
     let search_url = format!(
         "https://itunes.apple.com/search?term={}&entity=song&limit=30",
-        urlencoding::encode(&query)
+        urlencoding::encode(&final_query)
     );
 
-    let resp = client
-        .get(search_url)
-        .header(reqwest::header::USER_AGENT, "Mozilla/5.0")
-        .send()
-        .await
-        .map_err(|e| format!("iTunes search failed: {}", e))?;
+    let mut resp_text = String::new();
+    for attempt in 0..3 {
+        match client
+            .get(&search_url)
+            .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    if let Ok(text) = resp.text().await {
+                        resp_text = text;
+                        break;
+                    }
+                } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 403 || status.as_u16() == 503 {
+                    // Backoff for rate limits
+                    std::thread::sleep(std::time::Duration::from_millis(400 * (attempt + 1)));
+                }
+            }
+            Err(_) => {
+                if attempt == 2 {
+                    return youtube_search_fallback(app_handle, query).await;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+        }
+    }
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if resp_text.trim().is_empty() {
+        // If iTunes was blank or rate limited, try JioSaavn as first fallback before YouTube
+        if let Ok(saavn_results) = search_jiosaavn(app_handle.clone(), query.clone()).await {
+            if !saavn_results.is_empty() {
+                return Ok(saavn_results);
+            }
+        }
+        return youtube_search_fallback(app_handle, query).await;
+    }
+
+    let data: serde_json::Value = match serde_json::from_str(&resp_text) {
+        Ok(v) => v,
+        Err(_) => {
+            if let Ok(saavn_results) = search_jiosaavn(app_handle.clone(), query.clone()).await {
+                if !saavn_results.is_empty() {
+                    return Ok(saavn_results);
+                }
+            }
+            return youtube_search_fallback(app_handle, query).await;
+        }
+    };
+
     let mut results = Vec::new();
 
     if let Some(tracks) = data["results"].as_array() {
@@ -1077,6 +1151,14 @@ async fn search_itunes(app_handle: tauri::AppHandle, query: String) -> Result<Ve
                 .as_str()
                 .unwrap_or_default()
                 .replace("100x100", "200x200");
+            let genre = t["primaryGenreName"].as_str().map(|s| s.to_string());
+            let year = t["releaseDate"].as_str().and_then(|d| {
+                if d.len() >= 4 {
+                    d[0..4].parse::<i32>().ok()
+                } else {
+                    None
+                }
+            });
             results.push(HarbourSearchResult {
                 id: t["trackId"].as_i64().unwrap_or(0).to_string(),
                 title: t["trackName"].as_str().unwrap_or_default().to_string(),
@@ -1086,11 +1168,18 @@ async fn search_itunes(app_handle: tauri::AppHandle, query: String) -> Result<Ve
                 cover_art,
                 url: t["trackViewUrl"].as_str().unwrap_or_default().to_string(),
                 preview_url: t["previewUrl"].as_str().map(|v| v.to_string()),
+                year,
+                genre,
             });
         }
     }
 
     if results.is_empty() {
+        if let Ok(saavn_results) = search_jiosaavn(app_handle.clone(), query.clone()).await {
+            if !saavn_results.is_empty() {
+                return Ok(saavn_results);
+            }
+        }
         return youtube_search_fallback(app_handle, query).await;
     }
 
@@ -1357,6 +1446,8 @@ async fn search_soundcloud(app_handle: tauri::AppHandle, query: String) -> Resul
                 cover_art,
                 url: item["url"].as_str().unwrap_or_default().to_string(),
                 preview_url: None,
+                year: None,
+                genre: None,
             });
         }
     }
@@ -1427,6 +1518,8 @@ async fn youtube_search_fallback(app_handle: tauri::AppHandle, query: String) ->
                 },
                 url: item["url"].as_str().unwrap_or_default().to_string(),
                 preview_url: None,
+                year: None,
+                genre: None,
             });
         }
     }
@@ -1703,6 +1796,8 @@ async fn tag_downloaded_file(
     cover_art: &str,
     url: Option<&str>,
     provider: Option<&str>,
+    genre: Option<&str>,
+    year: Option<i32>,
 ) {
     let clean_artist = clean_artist_name(artist);
     let clean_album = clean_artist_name(album);
@@ -1725,6 +1820,14 @@ async fn tag_downloaded_file(
         }
         if !clean_album.is_empty() {
             tag.insert_text(ItemKey::AlbumTitle, clean_album);
+        }
+        if let Some(g) = genre {
+            if !g.trim().is_empty() {
+                tag.insert_text(ItemKey::Genre, g.trim().to_string());
+            }
+        }
+        if let Some(y) = year {
+            tag.insert_text(ItemKey::Year, y.to_string());
         }
 
         // Save source ID and provider for recommendation feature
@@ -1792,6 +1895,8 @@ async fn download_track(
     ip_version: Option<String>,
     provider: Option<String>,
     track_id: Option<String>,
+    genre: Option<String>,
+    year: Option<i32>,
 ) -> Result<String, String> {
     use std::process::{Command, Stdio};
     use std::io::{BufRead, BufReader};
@@ -1862,6 +1967,8 @@ async fn download_track(
                     &final_cover,
                     url.as_deref(),
                     provider.as_deref(),
+                    genre.as_deref(),
+                    year,
                 ).await;
 
                 let _ = app_handle.emit("download-progress", DownloadProgress {
@@ -2051,6 +2158,8 @@ async fn download_track(
         &_cover_art,
         url.as_deref(),
         provider.as_deref(),
+        genre.as_deref(),
+        year,
     ).await;
 
     Ok(target_path.to_string_lossy().to_string())

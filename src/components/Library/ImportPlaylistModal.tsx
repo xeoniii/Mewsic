@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Clipboard, FileJson, Music, Loader2, Download, AlertCircle, CheckCircle2 } from "lucide-react";
+import { X, FileJson, Music, Loader2, Download, AlertCircle, CheckCircle2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import type { Playlist, Track } from "../../types";
@@ -17,8 +17,7 @@ export function ImportPlaylistModal({ onClose }: ImportPlaylistModalProps) {
   const [isImporting, setIsImporting] = useState(false);
   
   const { rehydratePlaylist } = useLibrary();
-  const { addNotification, allTracks } = useStore(state => ({
-    addNotification: state.addNotification,
+  const { allTracks } = useStore(state => ({
     allTracks: state.tracks
   }));
 

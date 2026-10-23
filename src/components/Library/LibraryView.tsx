@@ -1,17 +1,16 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
+import React, { useMemo, useState, useCallback, memo, useEffect, useRef } from "react";
 import { List as VList } from "react-window";
 import {
-  Search, LayoutGrid, List, SlidersHorizontal,
-  Music2, RefreshCw, Plus, PlusCircle, ChevronDown, ArrowUp, ArrowDown, Globe
+  Search, LayoutGrid, List,
+  Music2, RefreshCw, Plus, ChevronDown, ArrowUp, ArrowDown, Globe
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { importFiles, deleteTrack } from "../../utils/tauriApi";
+import { importFiles } from "../../utils/tauriApi";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { MusicCard } from "../Dashboard/MusicCard";
 import { useLibrary } from "../../hooks/useLibrary";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
-import { EditMetadataModal } from "./EditMetadataModal";
 import type { Track } from "../../types";
 
 const LIST_ITEM_HEIGHT = 80; // px per row in list view
@@ -77,8 +76,6 @@ const ListContent = memo(function ListContent({
   );
 });
 
-const GRID_PAGE_SIZE = 60;
-
 const GridContent = memo(function GridContent({
   tracks,
   allTracks,
@@ -98,7 +95,7 @@ const GridContent = memo(function GridContent({
 }) {
   const GRID_GAP = 16;
   const MIN_CARD_WIDTH = 180;
-  
+
   // Calculate columns based on available width (minus padding)
   const availableWidth = width - 64; // px-8 on both sides
   const columns = Math.max(1, Math.floor((availableWidth + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)));
@@ -120,13 +117,13 @@ const GridContent = memo(function GridContent({
 
       return (
         <div style={props.style} className="px-8 py-4">
-          <div 
-            className="grid gap-4" 
-            style={{ 
-              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` 
+          <div
+            className="grid gap-4"
+            style={{
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
             }}
           >
-            {rowTracks.map((track, i) => (
+            {rowTracks.map((track) => (
               <MusicCard
                 key={track.id}
                 track={track}
@@ -164,7 +161,7 @@ import { useDisplayData } from "../../hooks/useDisplayData";
 export function LibraryView() {
   const {
     isScanning, searchQuery, setSearchQuery, musicDir,
-    libraryViewMode, setLibraryViewMode, removeTrack, addNotification,
+    libraryViewMode, setLibraryViewMode,
     setAddTrack, setEditTrack, setDeleteTrack, setActiveView
   } = useStore(useShallow((s) => ({
     isScanning: s.isScanning,
@@ -173,8 +170,6 @@ export function LibraryView() {
     musicDir: s.musicDir,
     libraryViewMode: s.libraryViewMode,
     setLibraryViewMode: s.setLibraryViewMode,
-    removeTrack: s.removeTrack,
-    addNotification: s.addNotification,
     setAddTrack: s.setAddTrack,
     setEditTrack: s.setEditTrack,
     setDeleteTrack: s.setDeleteTrack,
@@ -299,12 +294,12 @@ export function LibraryView() {
   return (
     <div className="flex flex-col h-full">
       {
-  // This is the toolbar part
-}
+        // This is the toolbar part
+      }
       <div className="flex flex-col md:flex-row flex-wrap md:items-center gap-4 w-full px-4 md:px-8 py-4 md:py-6 flex-shrink-0">
         {
-  // This is the search part
-}
+          // This is the search part
+        }
         <div className="relative group flex-grow min-w-[200px]">
           <Search
             size={14}
@@ -323,20 +318,20 @@ export function LibraryView() {
 
         <div className="flex flex-wrap items-center justify-between md:justify-end gap-4 w-full md:w-auto flex-shrink-0">
           {
-  // This is the sort controls part
-}
+            // This is the sort controls part
+          }
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-text-muted mr-1">Sort by</span>
             <SortDropdown sortKey={sortKey} sortAsc={sortAsc} toggleSort={toggleSort} />
           </div>
 
           {
-  // This is the view toggle & actions part
-}
+            // This is the view toggle & actions part
+          }
           <div className="flex items-center gap-2 ml-auto md:ml-0">
             {
-  // This is the view toggle part
-}
+              // This is the view toggle part
+            }
             <div className="flex items-center gap-1 bg-surface-raised border border-border-subtle rounded-xl p-1">
               <button
                 onClick={() => setLibraryViewMode("list")}
@@ -355,8 +350,8 @@ export function LibraryView() {
             </div>
 
             {
-  // This is the rescan part
-}
+              // This is the rescan part
+            }
             <button
               onClick={() => musicDir && rescanDirectory()}
               disabled={isScanning}
@@ -367,8 +362,8 @@ export function LibraryView() {
             </button>
 
             {
-  // This is the import part
-}
+              // This is the import part
+            }
             <button
               onClick={handleImport}
               className="btn-accent h-10 px-4 flex-shrink-0"
@@ -382,8 +377,8 @@ export function LibraryView() {
       </div>
 
       {
-  // This is the track count part
-}
+        // This is the track count part
+      }
       <div className="px-6 py-2 text-xs text-text-muted flex-shrink-0">
         {filtered.length === displayTracks.length
           ? `${demoTrackCount} tracks`
@@ -391,8 +386,8 @@ export function LibraryView() {
       </div>
 
       {
-  // Here is the main content
-}
+        // Here is the main content
+      }
       <div ref={contentRef} className="flex-1 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="empty-state pt-16 flex flex-col items-center justify-center text-center p-8">
@@ -453,12 +448,12 @@ export function LibraryView() {
           </div>
         ) : (
           <div className="h-full">
-            <GridContent 
-              tracks={filtered} 
+            <GridContent
+              tracks={filtered}
               allTracks={sortedLibrary}
-              onAddToPlaylist={handleAddToPlaylist} 
-              onEditMetadata={handleEditMetadata} 
-              onDelete={handleDeleteTrack} 
+              onAddToPlaylist={handleAddToPlaylist}
+              onEditMetadata={handleEditMetadata}
+              onDelete={handleDeleteTrack}
               width={listWidth}
               height={listHeight}
             />
@@ -485,7 +480,7 @@ function SortDropdown({
   toggleSort: (k: SortKey) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  
+
   const options: { k: SortKey; label: string }[] = [
     { k: "title", label: "Title" },
     { k: "artist", label: "Artist" },
@@ -524,11 +519,10 @@ function SortDropdown({
                 toggleSort(o.k);
                 setIsOpen(false);
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all ${
-                sortKey === o.k 
-                  ? 'bg-accent/10 text-accent font-bold' 
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all ${sortKey === o.k
+                  ? 'bg-accent/10 text-accent font-bold'
                   : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
-              }`}
+                }`}
             >
               <span>{o.label}</span>
               {sortKey === o.k && (sortAsc ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}

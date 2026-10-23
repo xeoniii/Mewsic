@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { useStore } from "./store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "./hooks/useLibrary";
@@ -9,7 +9,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
-import { relaunch, exit } from "@tauri-apps/plugin-process";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { PlayerBar } from "./components/Player/PlayerBar";
 import { HomeView } from "./components/Dashboard/HomeView";
@@ -17,6 +16,7 @@ import { LibraryView } from "./components/Library/LibraryView";
 import { PlaylistView } from "./components/Library/PlaylistView";
 import { LyricsView } from "./components/Player/LyricsView";
 import HarbourView from "./components/Harbour/HarbourView";
+import { RevampedHarbourView } from "./components/Harbour/RevampedHarbourView";
 import { AudioView } from "./components/Audio/AudioView";
 import { QueueView } from "./components/Player/QueueView";
 import { SettingsView } from "./components/Settings/SettingsView";
@@ -41,7 +41,12 @@ import { UpdatePromptModal } from "./components/UI/UpdatePromptModal";
 import { SplashScreen } from "./components/UI/SplashScreen";
 
 function ViewRouter() {
-  const { activeView } = useStore(useShallow((s) => ({ activeView: s.activeView })));
+  const { activeView, revampedHarbour } = useStore(
+    useShallow((s) => ({
+      activeView: s.activeView,
+      revampedHarbour: s.revampedHarbour,
+    }))
+  );
 
   if (activeView && activeView.startsWith("plugin:")) {
     return <PluginView viewId={activeView} />;
@@ -53,7 +58,7 @@ function ViewRouter() {
     case "playlist": return <PlaylistView />;
     case "player":   return <LyricsView />;
     case "queue":    return <QueueView />;
-    case "harbour":  return <HarbourView />;
+    case "harbour":  return revampedHarbour ? <RevampedHarbourView /> : <HarbourView />;
     case "audio":    return <AudioView />;
     case "plugins":  return <PluginsView />;
     case "settings": return <SettingsView />;
@@ -64,11 +69,11 @@ const lastKeyTime: Record<string, number> = {};
 
 export default function App() {
   const {
-    activeView, accentColor, customAccentColor, theme, musicDir, playlistsDir, coversDir,
+    accentColor, customAccentColor, theme, musicDir, playlistsDir, coversDir,
     setMusicDir, setPlaylistsDir, setCoversDir, guiScale, showAbout,
     editTrack, addTrack, deleteTrackRequest, setEditTrack, setAddTrack,
     setDeleteTrack, removeTrack, addNotification, roundedCorners, customTitlebar,
-    setFullscreen, isFullscreen, isMaximized, setIsMaximized, lowEndMode, shortcuts,
+    setFullscreen, isFullscreen, isMaximized, setIsMaximized, lowEndMode,
     showImportPlaylist, setShowImportPlaylist,
     showCreatePlaylist, setShowCreatePlaylist,
     showCyberdeck, setShowCyberdeck, setShowAbout,
@@ -77,7 +82,6 @@ export default function App() {
     showUpdatePrompt, setShowUpdatePrompt,
     pendingUpdateVersion, setPendingUpdateVersion
   } = useStore(useShallow((s) => ({
-    activeView: s.activeView,
     accentColor: s.accentColor,
     customAccentColor: s.customAccentColor,
     theme: s.theme,
@@ -478,7 +482,6 @@ export default function App() {
       setDeleteTrack(null);
     }
   };
-  const showPlayerBar = activeView !== "player";
 
   return (
     <div

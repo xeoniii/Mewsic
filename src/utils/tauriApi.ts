@@ -1,4 +1,4 @@
-import { invoke, convertFileSrc as tauriConvertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import type { Track, Playlist, AppPaths, ScanResult } from "../types";
 
 export function convertFileSrc(filePath: string): string {
@@ -265,6 +265,8 @@ export interface HarbourSearchResult {
   coverArt: string;
   url: string;
   previewUrl?: string;
+  year?: number;
+  genre?: string;
 }
 
 export async function searchHarbour(query: string, provider: string): Promise<HarbourSearchResult[]> {

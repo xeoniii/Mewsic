@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import {
   Palette, FolderOpen, RefreshCw, Trash2, Check, RotateCcw,
-  Info, Music2, Volume2, FolderInput, Sun, Moon, Keyboard, Monitor, Share2, MessageSquare, Bell, Zap, FileUp, FolderPlus, Database, Power,
-  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, DownloadCloud, Wrench, ShieldAlert, Terminal, LayoutGrid, List, Sliders, Puzzle, Crop, SidebarClose
+  Info, Music2, Volume2, FolderInput, Sun, Moon, Keyboard, Monitor, Bell, Zap, FileUp, FolderPlus, Database, Power,
+  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Crop
 } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "../../hooks/useLibrary";
@@ -25,9 +24,9 @@ function Section({
   children,
   className = "",
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -53,7 +52,6 @@ export function SettingsView() {
     customAccentColor,
     volume,
     setAccentColor,
-    setCustomAccentColor,
     setVolume,
     guiScale,
     setGuiScale,
@@ -65,13 +63,9 @@ export function SettingsView() {
     setCustomTitlebar,
     roundedCorners,
     setRoundedCorners,
-    sidebarCollapsed,
-    setSidebarCollapsed,
     shortcuts,
     setShortcut,
     resetShortcuts,
-    discordEnabled,
-    setDiscordEnabled,
     systemNotifications,
     setSystemNotifications,
     lowEndMode,
@@ -85,15 +79,12 @@ export function SettingsView() {
     setPlaylistViewMode,
     smoothScrollEnabled = true,
     setSmoothScrollEnabled,
-    minecraftIntegrationEnabled,
-    setMinecraftIntegrationEnabled,
     setShowUpdateModal,
   } = useStore(useShallow((s) => ({
     accentColor: s.accentColor,
     customAccentColor: s.customAccentColor,
     volume: s.volume,
     setAccentColor: s.setAccentColor,
-    setCustomAccentColor: s.setCustomAccentColor,
     setVolume: s.setVolume,
     guiScale: s.guiScale,
     setGuiScale: s.setGuiScale,
@@ -105,13 +96,9 @@ export function SettingsView() {
     setCustomTitlebar: s.setCustomTitlebar,
     roundedCorners: s.roundedCorners,
     setRoundedCorners: s.setRoundedCorners,
-    sidebarCollapsed: s.sidebarCollapsed,
-    setSidebarCollapsed: s.setSidebarCollapsed,
     shortcuts: s.shortcuts,
     setShortcut: s.setShortcut,
     resetShortcuts: s.resetShortcuts,
-    discordEnabled: s.discordEnabled,
-    setDiscordEnabled: s.setDiscordEnabled,
     systemNotifications: s.systemNotifications,
     setSystemNotifications: s.setSystemNotifications,
     lowEndMode: s.lowEndMode,
@@ -125,8 +112,6 @@ export function SettingsView() {
     setPlaylistViewMode: s.setPlaylistViewMode,
     smoothScrollEnabled: s.smoothScrollEnabled,
     setSmoothScrollEnabled: s.setSmoothScrollEnabled,
-    minecraftIntegrationEnabled: s.minecraftIntegrationEnabled,
-    setMinecraftIntegrationEnabled: s.setMinecraftIntegrationEnabled,
     setShowUpdateModal: s.setShowUpdateModal,
   })));
 
@@ -143,13 +128,12 @@ export function SettingsView() {
 
   const [scanning, setScanning] = useState(false);
   const [refreshingPlaylists, setRefreshingPlaylists] = useState(false);
-  const [showPlugins, setShowPlugins] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("1.0.0");
+  const [appVersion, setAppVersion] = useState<string>("1.1.0");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -694,43 +678,27 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>v1.0.0 Main Release!</span>
+                    <span>Revamped Home Page with custom personalised recommendations.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed scaling issues with the interface scale slider.</span>
+                    <span>Advanced music taste algorithm for recommendations and future features. (*data is fully processed locally)</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Changes to Playlist view models.</span>
+                    <span>Downloaded songs now embed year and genre to its metadata, also works for manually fetching metadata.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed tooltip location issues.</span>
+                    <span>Remade new discoveries to look for .dateCreated instead of .dateModified as it should've been that in the first place.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Revamped Lyrics UI.</span>
+                    <span>Plugins now support custom configs.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Updated Harbour API to allow for much faster download speeds.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug causing songs with special characters such as # to not load any metadata.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Harbour dependencies now come bundled with the app for instant access.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed issues with resizing window and borders.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Changes to cover art loading.</span>
+                    <span>Minor UI changes.</span>
                   </li>
                 </ul>
               </div>
@@ -761,9 +729,9 @@ function ShortcutRow({ label, action, shortcut, onSet }: {
   shortcut: Shortcut;
   onSet: (action: keyof ShortcutMap, key: string, ctrl?: boolean, shift?: boolean, alt?: boolean) => void;
 }) {
-  const [isRecording, setIsRecording] = React.useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isRecording) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {

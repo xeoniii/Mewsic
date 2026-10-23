@@ -1,5 +1,5 @@
 import { useStore } from "../store";
-import type { Track, Playlist } from "../types";
+import type { Track, Playlist, PluginConfigField } from "../types";
 import { version } from "../../package.json";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -14,6 +14,121 @@ export function initPluginApi() {
   if (window.Mewsic) return;
 
   const getPluginStoragePrefix = (pluginId?: string) => `mewsic_plugin_${pluginId || "global"}_`;
+
+  // Plugin Configuration Schemas and Listeners
+  const configSchemas = new Map<string, PluginConfigField[]>();
+  const configChangeListeners: Record<string, Array<(newConfig: Record<string, any>, key?: string) => void>> = {};
+
+  const getPluginConfigKey = (pluginId: string) => `mewsic_plugin_config_${pluginId}`;
+
+  const loadSavedConfig = (pluginId: string): Record<string, any> => {
+    try {
+      const raw = localStorage.getItem(getPluginConfigKey(pluginId));
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      console.error(`Failed to load config for plugin ${pluginId}:`, e);
+      return {};
+    }
+  };
+
+  const saveConfig = (pluginId: string, values: Record<string, any>) => {
+    try {
+      localStorage.setItem(getPluginConfigKey(pluginId), JSON.stringify(values));
+    } catch (e) {
+      console.error(`Failed to save config for plugin ${pluginId}:`, e);
+    }
+  };
+
+  const resolveConfig = (pluginId: string): Record<string, any> => {
+    const schema = configSchemas.get(pluginId) || [];
+    const saved = loadSavedConfig(pluginId);
+    const resolved: Record<string, any> = {};
+
+    for (const field of schema) {
+      if (field.default !== undefined) {
+        resolved[field.key] = field.default;
+      }
+    }
+
+    for (const key of Object.keys(saved)) {
+      resolved[key] = saved[key];
+    }
+
+    return resolved;
+  };
+
+  // Register built-in schemas so users can configure Discord RPC, Minecraft Bridge, and Mewsify immediately
+  configSchemas.set("discord-rpc", [
+    {
+      key: "showButtons",
+      label: "Download Button",
+      type: "boolean",
+      default: true,
+      description: "Show a button on your Discord profile allowing friends to download Mewsic."
+    },
+    {
+      key: "showAlbumArt",
+      label: "Display Album Art",
+      type: "boolean",
+      default: true,
+      description: "Display the song's album art on your Discord profile."
+    },
+    {
+      key: "showTimeRemaining",
+      label: "Live Progress Bar",
+      type: "boolean",
+      default: true,
+      description: "Show real-time progress and remaining song duration on Discord status."
+    }
+  ]);
+
+  configSchemas.set("minecraft-bridge", [
+    {
+      key: "port",
+      label: "WebSocket Server Port",
+      type: "number",
+      default: 3012,
+      min: 1024,
+      max: 65535,
+      description: "Local WebSocket server port that the Minecraft companion mod connects to."
+    },
+    {
+      key: "normalizeTitles",
+      label: "Normalize Track Titles",
+      type: "boolean",
+      default: true,
+      description: "Replaces spaces with underscores for compatibility with Minecraft HUD text."
+    },
+    {
+      key: "autoReconnect",
+      label: "Auto-Reconnect",
+      type: "boolean",
+      default: true,
+      description: "Automatically try to reconnect if Minecraft is launched after Mewsic."
+    }
+  ]);
+
+  configSchemas.set("mewsify", [
+    {
+      key: "audioQuality",
+      label: "Download Audio Quality",
+      type: "select",
+      default: "320k",
+      options: [
+        { label: "High (320 kbps MP3)", value: "320k" },
+        { label: "Standard (192 kbps MP3)", value: "192k" },
+        { label: "Compact (128 kbps MP3)", value: "128k" }
+      ],
+      description: "Target audio bitrate when downloading and saving songs to library."
+    },
+    {
+      key: "fetchLyrics",
+      label: "Auto-Fetch Synced Lyrics",
+      type: "boolean",
+      default: true,
+      description: "Automatically retrieve and embed synchronized LRC lyrics for imported tracks."
+    }
+  ]);
 
   // Separate buckets for system events vs custom plugin-emitted events
   const eventListeners: Record<string, Function[]> = {};
@@ -394,6 +509,12 @@ export function initPluginApi() {
       openPlaylist: (playlistId: string) => useStore.getState().setActivePlaylist(playlistId),
       openSettings: () => useStore.getState().setActiveView("settings"),
       openPlayer: () => useStore.getState().setActiveView("player"),
+      openPluginConfig: (pluginId: string) => {
+        useStore.getState().setActiveView("plugins");
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("open-plugin-details", { detail: { pluginId, tab: "config" } }));
+        }, 50);
+      },
 
       setSearchQuery: (query: string) => useStore.getState().setSearchQuery(query),
 
@@ -564,6 +685,109 @@ export function initPluginApi() {
         Object.keys(localStorage)
           .filter(k => k.startsWith(prefix))
           .forEach(k => localStorage.removeItem(k));
+      },
+    },
+
+    // ── Plugin Config ─────────────────────────────────────────────────────────────
+
+    config: {
+      register: (pluginId: string, schema: PluginConfigField[]) => {
+        if (!pluginId || !Array.isArray(schema)) return;
+        configSchemas.set(pluginId, schema);
+        window.dispatchEvent(new CustomEvent("plugin-config-registered", { detail: { pluginId, schema } }));
+      },
+
+      getSchema: (pluginId: string): PluginConfigField[] => {
+        return configSchemas.get(pluginId) || [];
+      },
+
+      getSchemas: (): Record<string, PluginConfigField[]> => {
+        const out: Record<string, PluginConfigField[]> = {};
+        configSchemas.forEach((v, k) => { out[k] = v; });
+        return out;
+      },
+
+      get: (pluginId: string, key?: string): any => {
+        const resolved = resolveConfig(pluginId);
+        if (key !== undefined) {
+          return resolved[key];
+        }
+        return resolved;
+      },
+
+      getAll: (pluginId: string): Record<string, any> => {
+        return resolveConfig(pluginId);
+      },
+
+      set: (pluginId: string, keyOrValues: string | Record<string, any>, value?: any) => {
+        const currentSaved = loadSavedConfig(pluginId);
+        let changedKey: string | undefined;
+
+        if (typeof keyOrValues === "string") {
+          currentSaved[keyOrValues] = value;
+          changedKey = keyOrValues;
+        } else if (typeof keyOrValues === "object" && keyOrValues !== null) {
+          Object.assign(currentSaved, keyOrValues);
+        }
+
+        saveConfig(pluginId, currentSaved);
+        const resolved = resolveConfig(pluginId);
+
+        const listeners = configChangeListeners[pluginId] || [];
+        listeners.forEach(cb => {
+          try { cb(resolved, changedKey); } catch (e) { console.error(`Error in config listener for ${pluginId}:`, e); }
+        });
+
+        triggerEvent("plugin_config_changed", {
+          pluginId,
+          key: changedKey,
+          value: changedKey ? resolved[changedKey] : undefined,
+          config: resolved,
+        });
+        window.dispatchEvent(new CustomEvent("plugin-config-updated", {
+          detail: { pluginId, key: changedKey, config: resolved },
+        }));
+      },
+
+      reset: (pluginId: string, key?: string) => {
+        const schema = configSchemas.get(pluginId) || [];
+        const currentSaved = loadSavedConfig(pluginId);
+
+        if (key) {
+          delete currentSaved[key];
+        } else {
+          for (const field of schema) {
+            delete currentSaved[field.key];
+          }
+        }
+
+        saveConfig(pluginId, currentSaved);
+        const resolved = resolveConfig(pluginId);
+
+        const listeners = configChangeListeners[pluginId] || [];
+        listeners.forEach(cb => {
+          try { cb(resolved, key); } catch (e) { console.error(`Error in config reset listener for ${pluginId}:`, e); }
+        });
+
+        triggerEvent("plugin_config_changed", {
+          pluginId,
+          key,
+          value: key ? resolved[key] : undefined,
+          config: resolved,
+        });
+        window.dispatchEvent(new CustomEvent("plugin-config-updated", {
+          detail: { pluginId, key, config: resolved },
+        }));
+      },
+
+      onChange: (pluginId: string, callback: (newConfig: Record<string, any>, changedKey?: string) => void) => {
+        if (!configChangeListeners[pluginId]) {
+          configChangeListeners[pluginId] = [];
+        }
+        configChangeListeners[pluginId].push(callback);
+        return () => {
+          configChangeListeners[pluginId] = configChangeListeners[pluginId].filter(cb => cb !== callback);
+        };
       },
     },
 
