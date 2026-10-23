@@ -27,7 +27,7 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
       const dir = await downloadDir();
       const safeName = playlist.name.replace(/[<>:"/\\|?*]/g, "").trim() || "playlist";
       const targetPath = await join(dir, `${safeName}.json`);
-      
+
       await writeTextFile(targetPath, jsonContent);
       addNotification(`Playlist copied to Downloads as "${safeName}.json"!`, "success", 4000);
     } catch (err) {
@@ -41,7 +41,7 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
     const hydratedTracks = playlist.trackIds
       .map((id) => tracks.find((t) => t.id === id))
       .filter(Boolean) as Track[];
-    
+
     const exportData = {
       ...playlist,
       tracks: hydratedTracks,
@@ -75,8 +75,8 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
 
         <div className="p-6 flex flex-col gap-6">
           {
-  // This is the instructions part
-}
+            // This is the instructions part
+          }
           <div className="flex gap-4 p-4 rounded-xl bg-accent/5 border border-accent/10">
             <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent flex-shrink-0">
               <Info size={16} />
@@ -84,22 +84,21 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
             <div>
               <p className="text-sm font-medium text-text-primary">How to share</p>
               <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-                Copy the code below and send it to a friend. They can paste it directly into the 
+                Copy the code below and send it to a friend. They can paste it directly into the
                 <span className="text-accent font-bold"> Harbour search bar</span> to import this playlist and all its tracks automatically!
               </p>
             </div>
           </div>
 
           {
-  // This is the code view part
-}
+            // This is the code view part
+          }
           <div className="relative group">
             <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-               <button 
+              <button
                 onClick={handleCopy}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  copied ? 'bg-green-500 text-white' : 'bg-accent text-black hover:opacity-90'
-                }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${copied ? 'bg-green-500 text-white' : 'bg-accent text-black hover:opacity-90'
+                  }`}
               >
                 {copied ? <Check size={12} /> : <Copy size={12} />}
                 {copied ? "Copied!" : "Copy Code"}
@@ -137,7 +136,7 @@ export function SharePlaylistModal({ playlist, onClose }: SharePlaylistModalProp
                 Copy to Downloads
               </button>
             </div>
-            
+
             <p className="text-[10px] text-text-muted uppercase tracking-widest font-bold">
               Shared as Mewsic Code (JSON)
             </p>
