@@ -133,7 +133,7 @@ export function SettingsView() {
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("1.1.0");
+  const [appVersion, setAppVersion] = useState<string>("1.2.0");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -678,27 +678,23 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Revamped Home Page with custom personalised recommendations.</span>
+                    <span>Overhauled Harbour Page because the old one was the exact same as it was when it got first added.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Advanced music taste algorithm for recommendations and future features. (*data is fully processed locally)</span>
+                    <span>You can now track your downloads and its history in the new downlaods section in harbour.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Downloaded songs now embed year and genre to its metadata, also works for manually fetching metadata.</span>
+                    <span>Added support for favouriting tracks.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Remade new discoveries to look for .dateCreated instead of .dateModified as it should've been that in the first place.</span>
+                    <span>Changes to music download flow for better functioning.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Plugins now support custom configs.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Minor UI changes.</span>
+                    <span>Other minor changes and bug fixes.</span>
                   </li>
                 </ul>
               </div>

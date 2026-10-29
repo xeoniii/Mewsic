@@ -77,6 +77,9 @@ interface LibrarySlice {
   recordTrackPlay: (id: string) => void;
   trackListenDurations: Record<string, number>;
   addTrackListenDuration: (id: string, seconds: number) => void;
+  favorites: Record<string, boolean>;
+  toggleFavorite: (track: Track | { id?: string; title?: string; artist?: string }) => void;
+  isFavorite: (track: Track | { id?: string; title?: string; artist?: string } | null | undefined) => boolean;
 }
 
 // ── UI / Settings Slice ──────────────────────────────────────────────────────
@@ -124,7 +127,6 @@ interface UISlice {
   isDemoMode: boolean;
   isDevMode: boolean;
   revampedHome: boolean;
-  revampedHarbour: boolean;
   reverbEnabled: boolean;
   reverbStrength: number;
   playbackSpeed: number;
@@ -186,7 +188,6 @@ interface UISlice {
   setDemoMode: (v: boolean) => void;
   setDevMode: (v: boolean) => void;
   setRevampedHome: (v: boolean) => void;
-  setRevampedHarbour: (v: boolean) => void;
   setReverbEnabled: (v: boolean) => void;
   setReverbStrength: (v: number) => void;
   setPlaybackSpeed: (v: number) => void;
@@ -391,6 +392,40 @@ export const useStore = create<Store>()(
             [id]: Math.round(((s.trackListenDurations && s.trackListenDurations[id]) || 0) + seconds),
           },
         }));
+      },
+
+      favorites: {},
+      toggleFavorite: (track) => {
+        if (!track) return;
+        const id = track.id;
+        const title = (track.title || "").toLowerCase().trim();
+        const artist = (track.artist || "").toLowerCase().trim();
+        const key = title && artist ? `${title}:::${artist}` : "";
+
+        set((s) => {
+          const currentFav = (id && s.favorites[id]) || (key && s.favorites[key]);
+          const nextFav = !currentFav;
+          const next = { ...s.favorites };
+          if (id) {
+            if (nextFav) next[id] = true;
+            else delete next[id];
+          }
+          if (key) {
+            if (nextFav) next[key] = true;
+            else delete next[key];
+          }
+          return { favorites: next };
+        });
+      },
+
+      isFavorite: (track) => {
+        if (!track) return false;
+        const s = get();
+        if (track.id && s.favorites[track.id]) return true;
+        const title = (track.title || "").toLowerCase().trim();
+        const artist = (track.artist || "").toLowerCase().trim();
+        if (title && artist && s.favorites[`${title}:::${artist}`]) return true;
+        return false;
       },
 
       setTracks: (tracks) =>
@@ -599,7 +634,6 @@ export const useStore = create<Store>()(
       isDemoMode: false,
       isDevMode: false,
       revampedHome: false,
-      revampedHarbour: false,
       reverbEnabled: false,
       reverbStrength: 0.5,
       playbackSpeed: 1.0,
@@ -798,7 +832,6 @@ export const useStore = create<Store>()(
         set({ isDevMode: v });
       },
       setRevampedHome: (v) => set({ revampedHome: v }),
-      setRevampedHarbour: (v) => set({ revampedHarbour: v }),
       setReverbEnabled: (v) => set({ reverbEnabled: v }),
       setReverbStrength: (v) => set({ reverbStrength: v }),
       setPlaybackSpeed: (v) => set({ playbackSpeed: Math.max(0.5, Math.min(v, 2.0)) }),
@@ -971,9 +1004,9 @@ export const useStore = create<Store>()(
         mewsifyIntegrationEnabled: s.mewsifyIntegrationEnabled,
         isDevMode: s.isDevMode,
         revampedHome: s.revampedHome,
-        revampedHarbour: s.revampedHarbour,
         trackPlayCounts: s.trackPlayCounts,
         trackListenDurations: s.trackListenDurations,
+        favorites: s.favorites,
       }),
     }
   )

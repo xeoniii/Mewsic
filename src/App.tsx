@@ -16,7 +16,6 @@ import { LibraryView } from "./components/Library/LibraryView";
 import { PlaylistView } from "./components/Library/PlaylistView";
 import { LyricsView } from "./components/Player/LyricsView";
 import HarbourView from "./components/Harbour/HarbourView";
-import { RevampedHarbourView } from "./components/Harbour/RevampedHarbourView";
 import { AudioView } from "./components/Audio/AudioView";
 import { QueueView } from "./components/Player/QueueView";
 import { SettingsView } from "./components/Settings/SettingsView";
@@ -41,12 +40,7 @@ import { UpdatePromptModal } from "./components/UI/UpdatePromptModal";
 import { SplashScreen } from "./components/UI/SplashScreen";
 
 function ViewRouter() {
-  const { activeView, revampedHarbour } = useStore(
-    useShallow((s) => ({
-      activeView: s.activeView,
-      revampedHarbour: s.revampedHarbour,
-    }))
-  );
+  const activeView = useStore((s) => s.activeView);
 
   if (activeView && activeView.startsWith("plugin:")) {
     return <PluginView viewId={activeView} />;
@@ -58,7 +52,7 @@ function ViewRouter() {
     case "playlist": return <PlaylistView />;
     case "player":   return <LyricsView />;
     case "queue":    return <QueueView />;
-    case "harbour":  return revampedHarbour ? <RevampedHarbourView /> : <HarbourView />;
+    case "harbour":  return <HarbourView />;
     case "audio":    return <AudioView />;
     case "plugins":  return <PluginsView />;
     case "settings": return <SettingsView />;

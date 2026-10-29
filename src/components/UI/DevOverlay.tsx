@@ -131,8 +131,6 @@ export function DevOverlay() {
     setPendingUpdateVersion,
     setShowUpdateModal,
     setShowSplashScreen,
-    revampedHarbour,
-    setRevampedHarbour,
   } = useStore();
 
   const { rescanDirectory } = useLibrary();
@@ -1279,44 +1277,8 @@ export function DevOverlay() {
                     <span>Experimental Features</span>
                   </div>
 
-                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        justifyContent: "space-between",
-                        padding: "10px 12px",
-                        backgroundColor: revampedHarbour ? "#1d2b3a" : "#171a21",
-                        border: revampedHarbour ? "1px solid #88c0d0" : "1px solid #2e3542",
-                        gap: "14px",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontWeight: "bold", color: revampedHarbour ? "#88c0d0" : "#d8dee9", fontSize: "12px" }}>
-                            Revamped Harbour Page
-                          </span>
-                        </div>
-                        <p style={{ margin: 0, fontSize: "11px", color: "#707b8c", lineHeight: "1.4" }}>
-                          Switches the Harbour music discovery and downloader to the upcoming Redesigned version.
-                        </p>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingTop: "2px" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                          <input
-                            type="checkbox"
-                            checked={revampedHarbour}
-                            onChange={(e) => {
-                              const next = e.target.checked;
-                              setRevampedHarbour(next);
-                              addLog(`Experimental Feature: Revamped Harbour Page -> ${next ? "ENABLED" : "DISABLED"}`);
-                            }}
-                            style={{ accentColor: "#88c0d0", width: "16px", height: "16px", cursor: "pointer" }}
-                          />
-                        </label>
-                      </div>
-                    </div>
+                  <div style={{ padding: "14px 12px", color: "#707b8c", fontSize: "11px", textAlign: "center" }}>
+                    No active experimental flags. All features are in production.
                   </div>
                 </div>
 

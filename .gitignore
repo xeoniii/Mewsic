@@ -149,3 +149,5 @@ release.sh
 release.ps1
 release.cmd
 release.bat
+devtools.bat
+scripts/

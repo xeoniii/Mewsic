@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import {
   Play, Pause, SkipBack, SkipForward, Repeat, Repeat1,
   Shuffle, Volume2, VolumeX, Volume1,
-  RotateCcw, RotateCw, ListMusic
+  RotateCcw, RotateCw, ListMusic, Heart
 } from "lucide-react";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
@@ -61,6 +61,9 @@ export function PlayerBar() {
     setActiveView: s.setActiveView,
   })));
 
+  const isFav = useStore((s) => s.isFavorite(currentTrack));
+  const toggleFavorite = useStore((s) => s.toggleFavorite);
+
   const { togglePlay, seek, setSeeking } = useAudioPlayer();
 
   const handleVolumeChange = useCallback(
@@ -84,7 +87,7 @@ export function PlayerBar() {
       {
   // This is the track info (left) part
 }
-      <div className="flex items-center gap-3 min-w-0 flex-shrink-0" style={{ width: 225 }}>
+      <div className="flex items-center gap-2.5 min-w-0 flex-shrink-0" style={{ width: 240 }}>
         <div
           className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 ${
             currentTrack ? "shadow-glass" : ""
@@ -111,9 +114,23 @@ export function PlayerBar() {
             )}
           </div>
           <p className="text-xs text-text-muted truncate mt-0.5">
-            {currentTrack ? truncate(currentTrack.artist, 24) : "—"}
+            {currentTrack ? truncate(currentTrack.artist, 22) : "—"}
           </p>
         </div>
+
+        {currentTrack && (
+          <button
+            onClick={() => toggleFavorite(currentTrack)}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform active:scale-90 ${
+              isFav
+                ? "text-rose-500 hover:text-rose-400"
+                : "text-text-muted hover:text-rose-400"
+            }`}
+            title={isFav ? "Favorited" : "Favorite"}
+          >
+            <Heart size={16} fill={isFav ? "currentColor" : "none"} />
+          </button>
+        )}
       </div>
 
       {

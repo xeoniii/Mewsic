@@ -1,13 +1,39 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Search, Download, Music, Loader2, Globe, AlertCircle, ChevronDown, Check, Terminal, Link as LinkIcon, Send, FileAudio, FileVideo, Zap, PlusCircle } from "lucide-react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+  Search,
+  Download,
+  Music,
+  ArrowRight,
+  Loader2,
+  Play,
+  Pause,
+  RefreshCw,
+  Check,
+  X,
+  Headphones,
+  Compass,
+  ChevronDown,
+  Trash2,
+  RotateCcw,
+  Clock,
+  Heart,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useLibrary } from "../../hooks/useLibrary";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
+import { useDisplayData } from "../../hooks/useDisplayData";
+import { useLibrary } from "../../hooks/useLibrary";
+import { formatDuration } from "../../utils/helpers";
+import { deleteTrack } from "../../utils/tauriApi";
+import {
+  getSimilarArtists,
+  filterAndDiversifyRecommendations,
+} from "../../utils/musicTasteGraph";
+import type { Track } from "../../types";
 
-interface HarbourSearchResult {
+export interface HarbourSearchResult {
   id: string;
   title: string;
   artist: string;
@@ -20,447 +46,1151 @@ interface HarbourSearchResult {
   genre?: string;
 }
 
-export default function HarbourView() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<HarbourSearchResult[]>([]);
+export interface DownloadHistoryItem {
+  id: string;
+  trackId: string;
+  title: string;
+  artist: string;
+  album?: string;
+  coverArt?: string;
+  url?: string;
+  provider?: string;
+  genre?: string;
+  year?: number;
+  duration?: number;
+  timestamp: number;
+  filePath?: string;
+  status: "downloading" | "done" | "deleted" | "error";
+  progress?: number;
+}
+
+const DOWNLOAD_HISTORY_STORAGE_KEY = "mewsic_harbour_downloads_7d";
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+function loadDownloadHistory(): DownloadHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(DOWNLOAD_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: DownloadHistoryItem[] = JSON.parse(raw);
+    const now = Date.now();
+    return parsed.filter((item) => now - item.timestamp <= SEVEN_DAYS_MS);
+  } catch {
+    return [];
+  }
+}
+
+function saveDownloadHistory(items: DownloadHistoryItem[]) {
+  try {
+    const now = Date.now();
+    const filtered = items.filter((item) => now - item.timestamp <= SEVEN_DAYS_MS);
+    localStorage.setItem(DOWNLOAD_HISTORY_STORAGE_KEY, JSON.stringify(filtered));
+  } catch (e) {
+    console.error("Failed to save download history:", e);
+  }
+}
+
+function formatTimeAgo(timestamp: number): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (diffSec < 60) {
+    return "just now";
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return `${diffMin} ${diffMin === 1 ? "minute" : "minutes"} ago`;
+  }
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) {
+    return `${diffHr} ${diffHr === 1 ? "hour" : "hours"} ago`;
+  }
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays} ${diffDays === 1 ? "day" : "days"} ago`;
+}
+
+// In-memory & session cache to prevent redundant network requests and avoid layout flicker
+let cachedPersonalRecs: HarbourSearchResult[] = (() => {
+  try {
+    const saved = sessionStorage.getItem("mewsic_harbour_recs");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { }
+  return [];
+})();
+
+const FALLBACK_SEEDS = [
+  "The Weeknd",
+  "Daft Punk",
+  "Dua Lipa",
+  "Arctic Monkeys",
+  "Kendrick Lamar",
+  "Tame Impala",
+  "Billie Eilish",
+  "Post Malone",
+  "Coldplay",
+  "Gorillaz",
+  "Clairo",
+  "Vacations",
+  "Dominic Fike",
+  "Foster The People",
+  "Joji",
+  "Lorde",
+  "Steve Lacy",
+  "Frank Ocean",
+  "Mac DeMarco",
+  "Rex Orange County",
+  "Cage The Elephant",
+  "Glass Animals",
+  "Tyler, The Creator",
+  "SZA",
+  "Childish Gambino",
+  "Phoebe Bridgers",
+  "Wallows",
+  "Dayglow",
+  "Men I Trust",
+  "The Neighbourhood",
+];
+
+export function HarbourView() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   useSmoothScroll(containerRef);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
-  const [provider, setProvider] = useState(() => {
-    return localStorage.getItem("mewsic-harbour-provider") || "itunes";
-  });
 
-  useEffect(() => {
-    localStorage.setItem("mewsic-harbour-provider", provider);
-  }, [provider]);
-  const [preparing, setPreparing] = useState(true);
-  const [showSecret, setShowSecret] = useState(false);
-  const { musicDir, addNotification, updateNotification, removeNotification } = useStore(useShallow((s) => ({
-    musicDir: s.musicDir,
-    addNotification: s.addNotification,
-    updateNotification: s.updateNotification,
-    removeNotification: s.removeNotification,
-  })));
+  const {
+    guiScale,
+    musicDir,
+    addNotification,
+    updateNotification,
+    removeNotification,
+    setQueue,
+    setIsPlaying,
+    volume,
+    trackListenDurations,
+    removeTrack,
+    favorites,
+    isFavorite,
+    toggleFavorite,
+  } = useStore(
+    useShallow((s) => ({
+      guiScale: s.guiScale,
+      musicDir: s.musicDir,
+      addNotification: s.addNotification,
+      updateNotification: s.updateNotification,
+      removeNotification: s.removeNotification,
+      setQueue: s.setQueue,
+      setIsPlaying: s.setIsPlaying,
+      volume: s.volume,
+      trackListenDurations: s.trackListenDurations,
+      removeTrack: s.removeTrack,
+      favorites: s.favorites,
+      isFavorite: s.isFavorite,
+      toggleFavorite: s.toggleFavorite,
+    }))
+  );
+
+  const { displayTracks } = useDisplayData();
   const { rescanDirectory } = useLibrary();
 
-  const [dependencyProgress, setDependencyProgress] = useState<{ ytdlp: number, ffmpeg: number }>({ ytdlp: 0, ffmpeg: 0 });
-  const [currentDep, setCurrentDep] = useState<"yt-dlp" | "ffmpeg" | null>(null);
+  // Dynamic card count based on interface scale:
+  // 6 cards for 1.65x and above, 7 cards for below, 8 cards for 0.9x and below
+  const targetCount = useMemo(() => {
+    if (guiScale >= 1.65) return 6;
+    if (guiScale <= 0.9) return 8;
+    return 7;
+  }, [guiScale]);
 
-  const [customProviders, setCustomProviders] = useState<Array<{ id: string; name: string }>>([]);
+  // Tab & Search State
+  const [activeTab, setActiveTab] = useState<"discover" | "downloads">("discover");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchProvider, setSearchProvider] = useState(() => {
+    return localStorage.getItem("mewsic-harbour-provider") || "itunes";
+  });
+  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [searchResults, setSearchResults] = useState<HarbourSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
-  const [playingPreviewUrl, setPlayingPreviewUrl] = useState<string | null>(null);
+  // Recommendations State
+  const [personalRecs, setPersonalRecs] = useState<HarbourSearchResult[]>(() => cachedPersonalRecs);
+  const [personalRecsLoading, setPersonalRecsLoading] = useState(false);
+
+
+  // Audio Preview & Download State
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
 
-  const togglePreview = (url?: string) => {
-    if (!url) return;
-    if (playingPreviewUrl === url) {
-      audioRef.current?.pause();
-      setPlayingPreviewUrl(null);
-    } else {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      const audio = new Audio(url);
-      audio.volume = 0.5;
-      audio.play();
-      audio.onended = () => setPlayingPreviewUrl(null);
-      audioRef.current = audio;
-      setPlayingPreviewUrl(url);
-    }
-  };
+  // Download history (past 7 days) with persistent state
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryItem[]>(loadDownloadHistory);
 
+  // Persist download history changes to localStorage
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    };
-  }, []);
+    saveDownloadHistory(downloadHistory);
+  }, [downloadHistory]);
 
-  useEffect(() => {
-    const updateProviders = () => {
-      if (window.Mewsic?.ui?.registry?.searchProviders) {
-        const list: Array<{ id: string; name: string }> = [];
-        window.Mewsic.ui.registry.searchProviders.forEach((config: any, id: string) => {
-          list.push({ id, name: config.name });
-        });
-        setCustomProviders(list);
-      }
-    };
-
-    window.addEventListener("plugin-ui-updated", updateProviders);
-    updateProviders();
-    return () => window.removeEventListener("plugin-ui-updated", updateProviders);
-  }, []);
-
+  // Providers list
   const providers = [
     { id: "itunes", name: "iTunes" },
     { id: "jiosaavn", name: "JioSaavn" },
     { id: "youtube", name: "YouTube" },
     { id: "soundcloud", name: "SoundCloud" },
-    ...customProviders
   ];
 
-  useEffect(() => {
-    let unlistenYt: (() => void) | undefined;
-    let unlistenFm: (() => void) | undefined;
+  // Set of titles currently in the user's local library
+  const libraryTitlesSet = useMemo(() => {
+    const set = new Set<string>();
+    displayTracks.forEach((t) => {
+      if (t.title) set.add(t.title.toLowerCase().trim());
+    });
+    return set;
+  }, [displayTracks]);
 
-    const init = async () => {
-      try {
-        unlistenYt = await listen<number>("harbour-download-progress-ytdlp", (event) => {
-          setDependencyProgress(prev => ({ ...prev, ytdlp: event.payload }));
-          setCurrentDep("yt-dlp");
-        });
-        unlistenFm = await listen<number>("harbour-download-progress-ffmpeg", (event) => {
-          setDependencyProgress(prev => ({ ...prev, ffmpeg: event.payload }));
-          setCurrentDep("ffmpeg");
-        });
-
-        await invoke("ensure_dependencies");
-      } catch (err) {
-        console.error("Dependency check failed:", err);
-      } finally {
-        setPreparing(false);
-      }
-    };
-    init();
-
-    return () => {
-      if (unlistenYt) unlistenYt();
-      if (unlistenFm) unlistenFm();
-    };
-  }, []);
-
-  useEffect(() => {
-    const unlisten = listen<{ id: string; progress: number }>("download-progress", (event) => {
-      updateNotification(event.payload.id, { progress: event.payload.progress });
+  // Compute top artist seeds based on total listen duration + recency + FAVORITES!
+  const topArtists = useMemo(() => {
+    const scores: Record<string, number> = {};
+    displayTracks.forEach((t) => {
+      if (!t.artist || t.artist === "Unknown Artist") return;
+      const durationSec = (trackListenDurations && trackListenDurations[t.id]) || 0;
+      const isFav = isFavorite(t);
+      // Songs the user favorited give a massive +120 priority score to that artist!
+      const favBonus = isFav ? 120 : 0;
+      scores[t.artist] = (scores[t.artist] || 0) + 15 + Math.sqrt(durationSec) + favBonus;
     });
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        setShowSecret(prev => !prev);
+    // Also include any artists from favorited tracks even if not in local library displayTracks (e.g. favorited from Harbour)
+    Object.keys(favorites).forEach((key) => {
+      if (key.includes(":::")) {
+        const parts = key.split(":::");
+        const artist = parts[1];
+        if (artist && artist.trim()) {
+          const normArt = artist.trim();
+          scores[normArt] = (scores[normArt] || 0) + 120;
+        }
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
+    });
 
+    return Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+  }, [displayTracks, trackListenDurations, favorites, isFavorite]);
+
+  // Clean up audio on unmount
+  useEffect(() => {
     return () => {
-      unlisten.then(f => f());
-      window.removeEventListener('keydown', handleKeyDown);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
     };
   }, []);
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!query.trim()) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const customProv = window.Mewsic?.ui?.registry?.searchProviders?.get(provider);
-      if (customProv) {
-        const res = await customProv.search(query);
-        setResults(res);
-        if (res.length === 0) setError("No results found.");
-        return;
-      }
-
-      if (query.trim().startsWith("MWS-")) {
-        let rawCode = query.trim().substring(4);
-
-        // Check for provider prefix like MWS-jiosaavn:Title - Artist
-        if (rawCode.includes(":") && !rawCode.startsWith("http")) {
-          const parts = rawCode.split(":");
-          const p = parts[0].toLowerCase();
-          if (["jiosaavn", "itunes", "youtube"].includes(p)) {
-            setProvider(p);
-            rawCode = parts.slice(1).join(":");
-          }
-        }
-
-        // If it's a URL, we can fetch specific metadata
-        if (rawCode.startsWith("http")) {
-          const res = await invoke<HarbourSearchResult>("fetch_track_metadata", { query: rawCode });
-          if (res) {
-            setResults([res]);
-          } else {
-            setError("No metadata found for this link.");
-          }
-          return;
-        }
-        // Otherwise search for the ID/code normally
-        const res = await invoke<HarbourSearchResult[]>("harbour_search", {
-          query: rawCode,
-          provider
-        });
-        setResults(res);
-        if (res.length === 0) setError("No results found.");
-      } else {
-        const res = await invoke<HarbourSearchResult[]>("harbour_search", {
-          query,
-          provider
-        });
-        setResults(res);
-        if (res.length === 0) setError("No results found.");
-      }
-    } catch (err: any) {
-      setError(err.toString());
-    } finally {
-      setLoading(false);
+  // Sync preview audio volume with app volume
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = Math.max(0, Math.min(1, volume));
     }
-  };
+  }, [volume]);
 
-  const downloadTrack = async (track: HarbourSearchResult) => {
-    setDownloadingIds(prev => new Set(prev).add(track.id));
-    const notifId = addNotification("Downloading...", "info", 0, true, track.title);
+  // Listen for download progress events
+  useEffect(() => {
+    let unlistenProgress: (() => void) | undefined;
+    listen<{ id: string; progress: number }>("download-progress", (event) => {
+      const { id, progress } = event.payload;
+      updateNotification(id, {
+        progress,
+        message: `Downloading... ${progress.toFixed(0)}%`,
+        loading: true,
+      });
+      setDownloadHistory((prev) => {
+        const idx = prev.findIndex((t) => t.id === id);
+        if (idx !== -1) {
+          const updated = [...prev];
+          const newProgress = Math.max(updated[idx].progress || 0, progress);
+          updated[idx] = {
+            ...updated[idx],
+            progress: newProgress,
+            status: newProgress >= 100 ? "done" : "downloading",
+          };
+          return updated;
+        }
+        return prev;
+      });
+    }).then((un) => {
+      unlistenProgress = un;
+    });
 
-    let unlisten: (() => void) | undefined;
-    try {
-      const customProv = window.Mewsic?.ui?.registry?.searchProviders?.get(provider);
-      if (customProv && customProv.download) {
-        await customProv.download(track, musicDir, (progress: number) => {
-          updateNotification(notifId, {
-            message: `Downloading... ${progress.toFixed(0)}%`,
-            loading: true
-          });
-        });
-        updateNotification(notifId, { message: "Download complete!", type: "success", loading: false });
-        setTimeout(() => removeNotification(notifId), 3000);
-        rescanDirectory();
+    return () => {
+      if (unlistenProgress) unlistenProgress();
+    };
+  }, [updateNotification]);
+
+  // Smooth progressive ticker for active downloading transfers to ensure uniform increasing progress
+  useEffect(() => {
+    const hasDownloading = downloadHistory.some((t) => t.status === "downloading");
+    if (!hasDownloading) return;
+
+    const interval = setInterval(() => {
+      setDownloadHistory((prev) =>
+        prev.map((t) => {
+          if (t.status !== "downloading") return t;
+          const current = t.progress || 6;
+          if (current < 92) {
+            const step = current < 25 ? 0.8 : current < 60 ? 0.5 : 0.25;
+            const nextProgress = Math.min(92, +(current + step).toFixed(1));
+            updateNotification(t.id, {
+              progress: nextProgress,
+              message: `Downloading... ${nextProgress.toFixed(0)}%`,
+              loading: true,
+            });
+            return { ...t, progress: nextProgress };
+          }
+          return t;
+        })
+      );
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [downloadHistory, updateNotification]);
+
+  // ── 1. Fetch Personalized Taste-Based Recommendations with Similar Artists ──
+  const fetchPersonalRecommendations = useCallback(
+    async (forceRefresh = false) => {
+      if (!forceRefresh && cachedPersonalRecs.length > 0) {
+        setPersonalRecs(cachedPersonalRecs);
         return;
       }
 
-      unlisten = await listen("download-progress", (event: any) => {
-        const { id, progress } = event.payload;
-        if (id === notifId) {
-          updateNotification(notifId, {
-            message: `Downloading... ${progress.toFixed(0)}%`,
-            loading: true
-          });
-        }
-      });
+      setPersonalRecsLoading(true);
+      try {
+        const userArtists = topArtists.filter(
+          (a) => a && a !== "Unknown Artist" && a.trim().length > 0
+        );
 
-      await invoke("download_track", {
-        musicDir,
+        // Find SIMILAR artists via our music taste graph
+        const similarArtistsSet = new Set<string>();
+        for (const userArt of userArtists.slice(0, 10)) {
+          const sims = getSimilarArtists(userArt);
+          sims.forEach((s) => similarArtistsSet.add(s));
+        }
+
+        // Fallback seeds if user has few artists in library
+        if (similarArtistsSet.size < 20) {
+          FALLBACK_SEEDS.forEach((s) => similarArtistsSet.add(s));
+        }
+
+        const similarList = Array.from(similarArtistsSet);
+        const shuffledSims = [...similarList].sort(() => 0.5 - Math.random());
+
+        // Mix: up to 3 top artists from user + up to 16 similar artists
+        const queryArtists: string[] = [];
+        if (userArtists.length > 0) {
+          const shuffledUser = [...userArtists].sort(() => 0.5 - Math.random());
+          queryArtists.push(...shuffledUser.slice(0, 3));
+        }
+
+        for (const sim of shuffledSims) {
+          if (queryArtists.length >= 18) break;
+          if (!queryArtists.includes(sim)) {
+            queryArtists.push(sim);
+          }
+        }
+
+        // Fetch candidate songs concurrently in parallel across all query artists
+        const candidateBatches = await Promise.all(
+          queryArtists.map(async (artist) => {
+            try {
+              const results = await invoke<HarbourSearchResult[]>("harbour_search", {
+                query: artist,
+                provider: "itunes",
+              });
+              if (Array.isArray(results)) {
+                return results.slice(0, 4).map((track) => ({ queryArtist: artist, track }));
+              }
+            } catch (e) {
+              console.warn(`Failed search for artist ${artist}:`, e);
+            }
+            return [];
+          })
+        );
+
+        const rawCandidates = candidateBatches.flat();
+
+        // Filter out junk variants, songs by other artists matching the name,
+        // songs already in user's library, and enforce 1 track per artist diversity across 3 rows!
+        const existingTitles = new Set(
+          displayTracks.map((t) => t.title).filter(Boolean)
+        );
+
+        const diversified = filterAndDiversifyRecommendations(
+          rawCandidates,
+          existingTitles,
+          targetCount * 3
+        );
+
+        setPersonalRecs(diversified);
+        cachedPersonalRecs = diversified;
+        try {
+          sessionStorage.setItem("mewsic_harbour_recs", JSON.stringify(diversified));
+        } catch { }
+      } catch (err) {
+        console.error("Personal recommendations failed:", err);
+      } finally {
+        setPersonalRecsLoading(false);
+      }
+    },
+    [topArtists, displayTracks, targetCount]
+  );
+
+  useEffect(() => {
+    fetchPersonalRecommendations();
+  }, [fetchPersonalRecommendations]);
+
+  // When favorites change, clear cache and re-fetch recommendations to immediately reflect taste
+  const prevFavsRef = useRef(favorites);
+  useEffect(() => {
+    if (prevFavsRef.current !== favorites) {
+      prevFavsRef.current = favorites;
+      cachedPersonalRecs = [];
+      try {
+        sessionStorage.removeItem("mewsic_harbour_recs");
+      } catch { }
+      fetchPersonalRecommendations(true);
+    }
+  }, [favorites, fetchPersonalRecommendations]);
+
+
+
+  // ── 3. Handle Universal Search ──
+  const handleSearch = useCallback(
+    async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      const q = searchQuery.trim();
+      if (!q) {
+        setIsSearchActive(false);
+        setSearchResults([]);
+        return;
+      }
+
+      setIsSearchActive(true);
+      setSearchLoading(true);
+      setSearchError(null);
+
+      try {
+        const results = await invoke<HarbourSearchResult[]>("harbour_search", {
+          query: q,
+          provider: searchProvider,
+        });
+
+        if (Array.isArray(results)) {
+          setSearchResults(results);
+          if (results.length === 0) {
+            setSearchError(`No results found for "${q}". Try another provider or query.`);
+          }
+        }
+      } catch (err: any) {
+        setSearchError(err?.toString() || "Search failed.");
+      } finally {
+        setSearchLoading(false);
+      }
+    },
+    [searchQuery, searchProvider]
+  );
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
+    setIsSearchActive(false);
+    setSearchResults([]);
+    setSearchError(null);
+  }, []);
+
+  // ── 4. Audio Preview Toggle ──
+  const togglePreview = useCallback(
+    (track: HarbourSearchResult) => {
+      if (playingTrackId === track.id) {
+        audioRef.current?.pause();
+        setPlayingTrackId(null);
+        return;
+      }
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      if (track.preview_url) {
+        const audio = new Audio(track.preview_url);
+        audio.volume = Math.max(0, Math.min(1, volume));
+        audio.play().catch((err) => console.warn("Preview playback failed:", err));
+        audio.onended = () => setPlayingTrackId(null);
+        audio.onerror = () => setPlayingTrackId(null);
+        audioRef.current = audio;
+        setPlayingTrackId(track.id);
+      } else {
+        handlePlayInPlayer(track);
+      }
+    },
+    [playingTrackId, volume] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // ── 5. Play in Mewsic Main Player (Virtual Track) ──
+  const handlePlayInPlayer = useCallback(
+    (track: HarbourSearchResult) => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setPlayingTrackId(null);
+      }
+
+      const virtualTrack: Track = {
+        id: `harbour-${track.id}`,
         title: track.title,
         artist: track.artist,
-        album: track.album,
-        coverArt: track.cover_art,
-        downloadId: notifId,
-        provider,
-        url: track.url,
-        trackId: track.id,
-        genre: track.genre,
+        album: track.album || "Harbour Online",
+        albumArtist: track.artist,
+        genre: track.genre || "Online Discovery",
         year: track.year,
-      });
-      updateNotification(notifId, { message: "Download complete!", type: "success", loading: false });
-      setTimeout(() => removeNotification(notifId), 3000);
-      rescanDirectory();
-    } catch (err: any) {
-      console.error(err);
-      updateNotification(notifId, { message: "Download failed", type: "error", loading: false });
-      setTimeout(() => removeNotification(notifId), 5000);
-    } finally {
-      if (unlisten) unlisten();
-      setDownloadingIds(prev => {
+        duration: track.duration,
+        filePath: track.preview_url || track.url,
+        fileName: `${track.title}.m4a`,
+        fileSize: 0,
+        format: "m4a",
+        dateAdded: Date.now(),
+        isVirtual: true,
+        coverArt: track.cover_art,
+      };
+
+      setQueue([virtualTrack], 0);
+      setIsPlaying(true);
+    },
+    [setQueue, setIsPlaying]
+  );
+
+  // Check if track is currently in the user's library
+  const isTrackSavedOnDisk = useCallback(
+    (item: DownloadHistoryItem) => {
+      if (item.status === "deleted") return false;
+      if (item.filePath) {
+        const found = displayTracks.some((t) => t.filePath === item.filePath);
+        if (found) return true;
+      }
+      return displayTracks.some(
+        (t) =>
+          t.title.toLowerCase().trim() === item.title.toLowerCase().trim() &&
+          t.artist.toLowerCase().trim() === item.artist.toLowerCase().trim()
+      );
+    },
+    [displayTracks]
+  );
+
+  // Delete downloaded track from disk and library, keeping record in history with restore option
+  const handleDeleteDownloadedTrack = useCallback(
+    async (item: DownloadHistoryItem) => {
+      try {
+        const matching = displayTracks.find(
+          (t) =>
+            (item.filePath && t.filePath === item.filePath) ||
+            (t.title.toLowerCase().trim() === item.title.toLowerCase().trim() &&
+              t.artist.toLowerCase().trim() === item.artist.toLowerCase().trim())
+        );
+
+        const pathToDelete = matching?.filePath || item.filePath;
+        if (pathToDelete) {
+          await deleteTrack(pathToDelete);
+        }
+        if (matching?.id) {
+          removeTrack(matching.id);
+        }
+
+        // Remove from downloadedIds so restore can re-download it
+        setDownloadedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.trackId);
+          return next;
+        });
+
+        setDownloadHistory((prev) =>
+          prev.map((h) =>
+            h.id === item.id ||
+            (h.title.toLowerCase() === item.title.toLowerCase() &&
+              h.artist.toLowerCase() === item.artist.toLowerCase())
+              ? { ...h, status: "deleted" as const }
+              : h
+          )
+        );
+
+        rescanDirectory();
+        addNotification(`Deleted "${item.title}" from library`, "info");
+      } catch (err: any) {
+        console.error("Failed to delete track:", err);
+        addNotification(`Failed to delete: ${err?.message || err}`, "error");
+      }
+    },
+    [displayTracks, removeTrack, rescanDirectory, addNotification]
+  );
+
+  // Play a history item in player (either local file or virtual online track)
+  const handlePlayHistoryItem = useCallback(
+    (item: DownloadHistoryItem) => {
+      const matching = displayTracks.find(
+        (t) =>
+          (item.filePath && t.filePath === item.filePath) ||
+          (t.title.toLowerCase().trim() === item.title.toLowerCase().trim() &&
+            t.artist.toLowerCase().trim() === item.artist.toLowerCase().trim())
+      );
+      if (matching) {
+        setQueue([matching], 0);
+        setIsPlaying(true);
+      } else {
+        const pseudoTrack: HarbourSearchResult = {
+          id: item.trackId,
+          title: item.title,
+          artist: item.artist,
+          album: item.album || "",
+          duration: item.duration || 0,
+          cover_art: item.coverArt || "",
+          url: item.url || "",
+          genre: item.genre,
+          year: item.year,
+        };
+        handlePlayInPlayer(pseudoTrack);
+      }
+    },
+    [displayTracks, setQueue, setIsPlaying, handlePlayInPlayer]
+  );
+
+  // Remove single item from download history list
+  const handleRemoveFromHistory = useCallback((id: string) => {
+    setDownloadHistory((prev) => prev.filter((h) => h.id !== id));
+  }, []);
+
+  // Clear all non-downloading items from history
+  const handleClearHistory = useCallback(() => {
+    setDownloadHistory((prev) => prev.filter((h) => h.status === "downloading"));
+  }, []);
+
+  // ── 7. Direct One-Click Download Track ──
+  const handleDownloadTrack = useCallback(
+    async (track: HarbourSearchResult, providerOverride?: string) => {
+      if (downloadingIds.has(track.id)) return;
+
+      // Allow restore / re-download: clear from downloadedIds so it can be re-fetched
+      setDownloadedIds((prev) => {
         const next = new Set(prev);
         next.delete(track.id);
         return next;
       });
-    }
-  };
 
-  if (preparing) {
-    const progress = currentDep === "yt-dlp" ? dependencyProgress.ytdlp : dependencyProgress.ffmpeg;
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-surface-base text-text-muted gap-4">
-        <Loader2 size={48} className="animate-spin text-accent" />
-        <div className="text-center">
-          <p className="text-lg font-medium text-text-primary">Preparing Harbour</p>
-          <p className="text-sm">Downloading latest discovery tools...</p>
+      setDownloadingIds((prev) => new Set(prev).add(track.id));
+      const notifId = addNotification("Downloading...", "info", 0, true, track.title);
+      updateNotification(notifId, { progress: 6, loading: true });
 
-          {currentDep && (
-            <div className="mt-8 flex flex-col items-center gap-3">
-              <div className="w-64 h-2 bg-surface-raised border border-border-subtle rounded-full overflow-hidden shadow-inner">
-                <div
-                  className="h-full bg-accent transition-all duration-300 shadow-[0_0_10px_var(--accent-glow)]"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <div className="flex justify-between w-64 text-[10px] font-black uppercase tracking-[0.2em]">
-                <span className="text-accent">{currentDep}</span>
-                <span className="text-text-primary">{progress.toFixed(0)}%</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+      const historyEntry: DownloadHistoryItem = {
+        id: notifId,
+        trackId: track.id,
+        title: track.title,
+        artist: track.artist,
+        album: track.album || "",
+        coverArt: track.cover_art || "",
+        url: track.url || "",
+        provider: providerOverride || searchProvider || "itunes",
+        genre: track.genre,
+        year: track.year,
+        duration: track.duration,
+        timestamp: Date.now(),
+        status: "downloading",
+        progress: 6,
+      };
+
+      setDownloadHistory((prev) => [
+        historyEntry,
+        ...prev.filter((h) => h.trackId !== track.id && h.id !== notifId),
+      ]);
+
+      let unlisten: (() => void) | undefined;
+      try {
+        unlisten = await listen<{ id: string; progress: number }>("download-progress", (event) => {
+          if (event.payload.id === notifId) {
+            updateNotification(notifId, {
+              progress: event.payload.progress,
+              message: `Downloading... ${event.payload.progress.toFixed(0)}%`,
+              loading: true,
+            });
+          }
+        });
+
+        const savedFilePath = await invoke<string>("download_track", {
+          musicDir,
+          title: track.title,
+          artist: track.artist,
+          album: track.album || "",
+          coverArt: track.cover_art || "",
+          downloadId: notifId,
+          provider: providerOverride || searchProvider || "itunes",
+          url: track.url || "",
+          trackId: track.id,
+          genre: track.genre,
+          year: track.year,
+        });
+
+        setDownloadHistory((prev) =>
+          prev.map((t) =>
+            t.id === notifId
+              ? { ...t, progress: 100, status: "done", filePath: savedFilePath }
+              : t
+          )
+        );
+
+        updateNotification(notifId, {
+          message: `Saved "${track.title}" to library!`,
+          type: "success",
+          loading: false,
+          progress: undefined,
+        });
+        setTimeout(() => removeNotification(notifId), 3500);
+
+        setDownloadedIds((prev) => new Set(prev).add(track.id));
+        rescanDirectory();
+      } catch (err: any) {
+        console.error("Download failed:", err);
+        setDownloadHistory((prev) =>
+          prev.map((t) => (t.id === notifId ? { ...t, status: "error" } : t))
+        );
+        updateNotification(notifId, {
+          message: "Download failed: " + (err?.toString() || "Unknown error"),
+          type: "error",
+          loading: false,
+          progress: undefined,
+        });
+        setTimeout(() => removeNotification(notifId), 5000);
+      } finally {
+        if (unlisten) unlisten();
+        setDownloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(track.id);
+          return next;
+        });
+      }
+    },
+    [
+      downloadingIds,
+      musicDir,
+      addNotification,
+      updateNotification,
+      removeNotification,
+      searchProvider,
+      rescanDirectory,
+    ]
+  );
+
+  // Re-download / restore track that was previously deleted
+  const handleRestoreTrack = useCallback(
+    (item: DownloadHistoryItem) => {
+      setDownloadedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.trackId);
+        return next;
+      });
+
+      const pseudoTrack: HarbourSearchResult = {
+        id: item.trackId,
+        title: item.title,
+        artist: item.artist,
+        album: item.album || "",
+        duration: item.duration || 0,
+        cover_art: item.coverArt || "",
+        url: item.url || "",
+        genre: item.genre,
+        year: item.year,
+      };
+      handleDownloadTrack(pseudoTrack, item.provider);
+    },
+    [handleDownloadTrack]
+  );
+
+
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-surface-base text-text-primary overflow-hidden page relative">
-      {showSecret && <SecretMenu onClose={() => setShowSecret(false)} />}
-      {
-        // This is the header section
-      }
-      <header className="p-4 md:p-6 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-border-subtle bg-surface-base/50 backdrop-blur-md sticky top-0 z-10 min-w-0">
-        <div className="flex items-center gap-3 min-w-0 shrink-0">
-          <div className="min-w-0 flex-1 pr-4">
-            <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Harbour Engine</h1>
-            <p className="text-xs md:text-sm text-text-muted truncate">Global music ingestion and discovery</p>
-          </div>
-        </div>
+    <div ref={containerRef} className="flex flex-col h-full overflow-y-auto page select-none">
+      <div className="flex flex-col gap-8 p-8 pb-16 w-full">
 
-        <form onSubmit={handleSearch} className="flex gap-2 w-full xl:w-auto items-center min-w-0 flex-1 xl:flex-none justify-end">
-          <div className="relative flex-1 group min-w-0 max-w-md">
-            <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-accent transition-colors" size={18} />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search for songs, artists..."
-              className="w-full bg-white/5 border border-white/5 rounded-xl h-11 pl-10 sm:pl-12 pr-4 focus:outline-none focus:border-accent/50 transition-all placeholder:text-text-muted text-text-primary hover:bg-white/10 min-w-0 text-sm"
+        {/* ── HERO & SEARCH SECTION ── */}
+        <div className="flex flex-col gap-4">
+          <div>
+            <h1 className="font-display font-black text-3xl md:text-4xl tracking-tight text-text-primary">
+              Harbour
+            </h1>
+            <p className="text-sm text-text-muted mt-1">
+              Explore song recommendations tailored to your taste, browse topic collections, or search global music networks.
+            </p>
+          </div>
+
+          {/* Unified Universal Search Bar */}
+          <form onSubmit={handleSearch} className="relative w-full flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted"
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search any artist, song, album, or genre..."
+                className="w-full h-12 pl-12 pr-10 rounded-2xl bg-surface-raised border border-border-subtle focus:border-accent focus:outline-none text-text-primary placeholder:text-text-muted text-sm shadow-inner transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-primary rounded-lg transition-colors"
+                  title="Clear search"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Custom Provider Switcher Dropdown */}
+            <ProviderDropdown
+              providers={providers}
+              selectedProvider={searchProvider}
+              onSelect={(id) => {
+                setSearchProvider(id);
+                localStorage.setItem("mewsic-harbour-provider", id);
+              }}
             />
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <ProviderSelector provider={provider} setProvider={setProvider} providers={providers} />
 
             <button
               type="submit"
-              disabled={loading}
-              className="btn-accent px-4 sm:px-6 h-11 shrink-0 shadow-sm flex items-center justify-center"
+              disabled={searchLoading}
+              className="btn-accent h-12 px-5 text-xs font-bold flex items-center gap-1.5 shadow-sm rounded-2xl shrink-0"
             >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : (
-                <>
-                  <Search size={18} className="sm:mr-2" />
-                  <span className="hidden sm:inline">Search</span>
-                </>
+              {searchLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+              <span className="hidden sm:inline">Search</span>
+            </button>
+          </form>
+
+          {/* ── TWO MAIN TABS: DISCOVERY & DOWNLOADS ── */}
+          <div className="flex items-center gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("discover");
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "discover"
+                ? "bg-accent text-black shadow-sm"
+                : "bg-surface-raised/50 hover:bg-surface-raised text-text-muted hover:text-text-primary border border-border-subtle"
+                }`}
+            >
+              <Compass size={14} />
+              <span>Discovery</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("downloads");
+                setIsSearchActive(false);
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all relative ${activeTab === "downloads"
+                ? "bg-accent text-black shadow-sm"
+                : "bg-surface-raised/50 hover:bg-surface-raised text-text-muted hover:text-text-primary border border-border-subtle"
+                }`}
+            >
+              <Download size={14} />
+              <span>Downloads</span>
+              {downloadHistory.filter((t) => t.status === "downloading").length > 0 && (
+                <span className="flex h-2 w-2 rounded-full bg-accent animate-pulse" />
               )}
             </button>
           </div>
-        </form>
-      </header>
+        </div>
 
-      {
-        // Here is the main content
-      }
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-6">
-        {loading && results.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-4 text-text-muted">
-            <Loader2 size={48} className="animate-spin text-accent" />
-            <p className="text-lg font-medium animate-pulse">Scanning the airwaves...</p>
-          </div>
-        ) : error ? (
-          <div className="h-full flex flex-col items-center justify-center gap-4 text-text-muted max-w-2xl mx-auto text-center px-6">
-            <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-500">
-              <AlertCircle size={32} />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-text-primary mb-2">Search Failed</h3>
-              <p className="text-sm leading-relaxed">{error}</p>
-            </div>
-            <button
-              onClick={() => handleSearch()}
-              className="mt-4 px-6 py-2 bg-surface-raised hover:bg-surface-overlay border border-border-subtle rounded-lg transition-colors text-text-primary"
-            >
-              Try Again
-            </button>
-          </div>
-        ) : results.length > 0 ? (
-          <div className="flex flex-col gap-2 max-w-5xl mx-auto animate-slide-up">
-            {results.map((track) => (
-              <div
-                key={track.id}
-                className="group flex items-center gap-4 p-3 rounded-[1.25rem] bg-surface-raised border border-white/5 hover:bg-surface-overlay hover:border-accent/30 transition-colors shadow-sm"
+        {/* ── SEARCH RESULTS (WHEN USER SEARCHES IN DISCOVER) ── */}
+        {activeTab === "discover" && isSearchActive && (
+          <section className="flex flex-col gap-4 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted">
+                  Search Results
+                </p>
+                <h2 className="font-display font-black text-2xl tracking-tight text-text-primary mt-0.5">
+                  Results for &ldquo;{searchQuery}&rdquo;
+                </h2>
+              </div>
+              <button
+                onClick={clearSearch}
+                className="flex items-center gap-1.5 text-xs font-bold text-accent hover:text-accent-bright transition-colors"
               >
-                <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden flex-shrink-0 bg-surface-base shadow-inner">
-                  {track.cover_art ? (
-                    <>
-                      <img
-                        src={track.cover_art}
-                        alt={track.title}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                          (e.target as HTMLImageElement).parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
-                        }}
-                      />
-                      <div className="fallback-icon hidden w-full h-full flex items-center justify-center text-text-muted">
-                        <Music size={24} />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-text-muted">
-                      <Music size={24} />
-                    </div>
-                  )}
-                  {downloadingIds.has(track.id) && (
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
-                      <Loader2 size={24} className="animate-spin text-accent" />
-                    </div>
-                  )}
-                </div>
+                Back to Discover
+                <ArrowRight size={14} />
+              </button>
+            </div>
 
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <h4 className="font-bold text-base sm:text-lg truncate group-hover:text-accent transition-colors text-text-primary">
-                    {track.title}
-                  </h4>
-                  <p className="text-xs sm:text-sm text-text-muted truncate flex items-center gap-2 mt-0.5">
-                    <span className="font-medium text-text-secondary">{track.artist}</span>
-                    <span className="w-1 h-1 rounded-full bg-white/10" />
-                    <span>{track.album}</span>
+            {searchLoading ? (
+              <div className="py-20 flex flex-col items-center justify-center gap-3 text-text-muted">
+                <Loader2 size={36} className="animate-spin text-accent" />
+                <p className="text-xs font-medium">Searching {searchProvider}...</p>
+              </div>
+            ) : searchError ? (
+              <div className="p-8 rounded-2xl bg-surface-raised/30 border border-border-subtle text-center text-text-muted text-xs">
+                {searchError}
+              </div>
+            ) : searchResults.length > 0 ? (
+              <div
+                className="grid gap-4"
+                style={{ gridTemplateColumns: `repeat(${targetCount}, minmax(0, 1fr))` }}
+              >
+                {searchResults.map((track) => (
+                  <HarbourTrackCard
+                    key={track.id}
+                    track={track}
+                    onPlayPreview={togglePreview}
+                    onPlayInPlayer={handlePlayInPlayer}
+                    onDownload={handleDownloadTrack}
+                    isPlayingPreview={playingTrackId === track.id}
+                    isDownloading={downloadingIds.has(track.id)}
+                    isDownloaded={
+                      downloadedIds.has(track.id) ||
+                      libraryTitlesSet.has(track.title.toLowerCase().trim())
+                    }
+                  />
+                ))}
+              </div>
+            ) : null}
+          </section>
+        )}
+
+        {/* ── DISCOVERY & TOPICS (DEFAULT VIEW) ── */}
+        {activeTab === "discover" && !isSearchActive && (
+          <div className="flex flex-col gap-10">
+            {/* ── SECTION 1: PERSONALIZED RECOMMENDATIONS ── */}
+            <section className="flex flex-col gap-4">
+              <div className="flex items-end justify-between">
+                <div>
+                  <h2 className="font-display font-black text-2xl md:text-3xl text-text-primary tracking-tight mt-0.5">
+                    Songs you might love
+                  </h2>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    find some new tracks to add to your library
                   </p>
                 </div>
-
-                {track.duration > 0 && (
-                  <div className="hidden sm:block text-[10px] font-black uppercase tracking-widest text-text-muted/60 tabular-nums px-3 py-1.5 rounded-lg bg-white/5 border border-white/5">
-                    {Math.floor(track.duration / 60)}:{String(Math.floor(track.duration % 60)).padStart(2, '0')}
-                  </div>
-                )}
-
-                <button
-                  onClick={() => downloadTrack(track)}
-                  disabled={downloadingIds.has(track.id) && !(track as any).isPlaylist}
-                  className="w-12 h-12 rounded-xl bg-black/20 hover:bg-accent hover:text-black flex items-center justify-center transition-all disabled:opacity-50 text-text-muted shadow-inner flex-shrink-0"
-                  title={(track as any).isPlaylist ? "Import Playlist" : "Download Track"}
-                >
-                  {(track as any).isPlaylist ? (
-                    <PlusCircle size={20} />
-                  ) : (
-                    <Download size={20} />
-                  )}
-                </button>
-                {track.preview_url && !(track as any).isPlaylist && (
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => togglePreview(track.preview_url)}
-                    className="w-12 h-12 rounded-xl bg-black/20 hover:bg-accent hover:text-black flex items-center justify-center transition-all text-text-muted shadow-inner flex-shrink-0"
-                    title={playingPreviewUrl === track.preview_url ? "Stop Preview" : "Play Preview"}
+                    onClick={() => fetchPersonalRecommendations(true)}
+                    disabled={personalRecsLoading}
+                    className="btn-accent h-8 px-3 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                    title="Get new recommendations"
                   >
-                    {playingPreviewUrl === track.preview_url ? (
-                      <div className="w-3 h-3 bg-current" /> // Square for stop
-                    ) : (
-                      <FileAudio size={20} /> // Play icon or FileAudio
-                    )}
+                    <RefreshCw
+                      size={13}
+                      className={`text-black ${personalRecsLoading ? "animate-spin" : ""}`}
+                    />
+                    <span className="text-black">Refresh</span>
                   </button>
-                )}
+                </div>
               </div>
-            ))}
+
+              {personalRecsLoading && personalRecs.length === 0 ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3 text-text-muted">
+                  <Loader2 size={32} className="animate-spin text-accent" />
+                  <p className="text-xs font-medium">Curating diverse recommendations...</p>
+                </div>
+              ) : personalRecs.length > 0 ? (
+                <div
+                  className="grid gap-4"
+                  style={{ gridTemplateColumns: `repeat(${targetCount}, minmax(0, 1fr))` }}
+                >
+                  {personalRecs.slice(0, targetCount * 3).map((track) => (
+                    <HarbourTrackCard
+                      key={track.id}
+                      track={track}
+                      onPlayPreview={togglePreview}
+                      onPlayInPlayer={handlePlayInPlayer}
+                      onDownload={handleDownloadTrack}
+                      isPlayingPreview={playingTrackId === track.id}
+                      isDownloading={downloadingIds.has(track.id)}
+                      isDownloaded={
+                        downloadedIds.has(track.id) ||
+                        libraryTitlesSet.has(track.title.toLowerCase().trim())
+                      }
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 rounded-2xl bg-surface-raised/20 border border-border-subtle text-center text-text-muted text-xs">
+                  No recommendations found yet. Click &ldquo;Refresh&rdquo; above!
+                </div>
+              )}
+            </section>
           </div>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center gap-4 text-text-muted/30 animate-fade-in">
-            <Globe size={64} className="text-text-muted/20" />
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-text-muted/50 mb-1">Ready to Discover?</h3>
-              <p className="text-sm">Enter a song, artist, or ID above.</p>
+        )}
+
+        {/* ── TAB: DOWNLOADS (PAST 7 DAYS & ACTIVE TRANSFERS) ── */}
+        {activeTab === "downloads" && (
+          <div className="flex flex-col gap-5 animate-fade-in">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="font-display font-black text-2xl md:text-3xl text-text-primary tracking-tight">
+                  Downloads &amp; Transfers
+                </h2>
+                <p className="text-xs text-text-muted mt-1">
+                  History of music downloaded in the past 7 days. Deleted files stay here so you can restore them anytime.
+                </p>
+              </div>
+
+              {downloadHistory.length > 0 && (
+                <button
+                  onClick={handleClearHistory}
+                  className="px-3 py-1.5 rounded-xl border border-border-subtle hover:border-red-500/40 text-text-muted hover:text-red-400 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                  title="Clear non-active downloads from history"
+                >
+                  <Trash2 size={13} />
+                  <span>Clear History</span>
+                </button>
+              )}
             </div>
+
+            {downloadHistory.length > 0 ? (
+              <div className="flex flex-col gap-2.5">
+                {downloadHistory.map((item) => {
+                  const isDownloading = item.status === "downloading";
+                  const isDeleted = item.status === "deleted" || (!isDownloading && !isTrackSavedOnDisk(item));
+                  const isSaved = !isDownloading && !isDeleted;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3.5 rounded-2xl bg-surface-overlay/80 hover:bg-surface-overlay transition-all gap-4 group"
+                    >
+                      {/* Left Side: Thumbnail & Metadata */}
+                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                        <div className="w-12 h-12 rounded-xl bg-surface-raised overflow-hidden flex items-center justify-center shrink-0 relative">
+                          {item.coverArt ? (
+                            <img
+                              src={item.coverArt}
+                              alt={item.title}
+                              className={`w-full h-full object-cover transition-opacity ${
+                                isDeleted ? "opacity-40 grayscale" : "opacity-100"
+                              }`}
+                            />
+                          ) : (
+                            <Music size={20} className={isDeleted ? "text-text-muted/40" : "text-accent/60"} />
+                          )}
+                          {isDownloading && (
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                              <Loader2 size={18} className="animate-spin text-accent" />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p
+                              className={`text-xs font-bold truncate ${
+                                isDeleted
+                                  ? "text-text-muted line-through"
+                                  : "text-text-primary"
+                              }`}
+                              title={item.title}
+                            >
+                              {item.title}
+                            </p>
+                            {/* Status Badge */}
+                            {isDownloading ? (
+                              <span className="text-[10px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-full shrink-0">
+                                Downloading {item.progress?.toFixed(0)}%
+                              </span>
+                            ) : isDeleted ? (
+                              <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                                <Trash2 size={10} />
+                                <span>Deleted from disk</span>
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <p className="text-[11px] text-text-muted truncate mt-0.5">
+                            {item.artist} {item.album ? `• ${item.album}` : ""}
+                          </p>
+
+                          <p className="mt-1 text-[10px] text-text-muted/70">
+                            {formatTimeAgo(item.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Right Side: Progress Bar or Actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isDownloading ? (
+                          <div className="w-28 sm:w-36 h-2 bg-surface-raised rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-accent transition-all duration-300"
+                              style={{ width: `${item.progress || 0}%` }}
+                            />
+                          </div>
+                        ) : isSaved ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => toggleFavorite(item)}
+                              className={`w-8 h-8 rounded-xl hover:bg-surface-raised flex items-center justify-center transition-colors ${
+                                isFavorite(item) ? "text-rose-500" : "text-text-muted hover:text-rose-400"
+                              }`}
+                              title={isFavorite(item) ? "Remove from Favorites" : "Add to Favorites"}
+                            >
+                              <Heart size={15} fill={isFavorite(item) ? "currentColor" : "none"} />
+                            </button>
+                            <button
+                              onClick={() => handlePlayHistoryItem(item)}
+                              className="w-8 h-8 rounded-xl hover:bg-surface-raised text-text-muted hover:text-accent flex items-center justify-center transition-colors"
+                              title="Play in Mewsic"
+                            >
+                              <Play size={14} fill="currentColor" className="ml-0.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDownloadedTrack(item)}
+                              className="w-8 h-8 rounded-xl hover:bg-red-500/10 text-text-muted hover:text-red-400 flex items-center justify-center transition-colors"
+                              title="Delete from library &amp; disk"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                            <button
+                              onClick={() => handleRemoveFromHistory(item.id)}
+                              className="w-8 h-8 rounded-xl hover:bg-surface-raised text-text-muted/50 hover:text-text-primary flex items-center justify-center transition-colors"
+                              title="Remove from list"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleRestoreTrack(item)}
+                              className="btn-accent h-7 px-3 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                              title="Re-download and restore to library"
+                            >
+                              <RotateCcw size={12} />
+                              <span>Restore</span>
+                            </button>
+                            <button
+                              onClick={() => handleRemoveFromHistory(item.id)}
+                              className="w-8 h-8 rounded-xl hover:bg-surface-raised text-text-muted/50 hover:text-text-primary flex items-center justify-center transition-colors"
+                              title="Remove from list"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-20 flex flex-col items-center justify-center gap-2 text-text-muted text-center">
+                <Clock size={40} className="text-accent/60 mb-1" />
+                <p className="text-sm font-semibold text-text-primary">No Downloads in Past 7 Days</p>
+                <p className="text-xs text-text-muted max-w-sm">
+                  Songs downloaded from Discovery or Search will appear here for 7 days with quick restore and deletion options.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -468,287 +1198,252 @@ export default function HarbourView() {
   );
 }
 
-interface ProviderSelectorProps {
-  provider: string;
-  setProvider: (p: string) => void;
-  providers: Array<{ id: string; name: string }>;
+// ── Interactive Track Card Component ──
+interface HarbourTrackCardProps {
+  track: HarbourSearchResult;
+  onPlayPreview: (t: HarbourSearchResult) => void;
+  onPlayInPlayer: (t: HarbourSearchResult) => void;
+  onDownload: (t: HarbourSearchResult) => void;
+  isPlayingPreview: boolean;
+  isDownloading: boolean;
+  isDownloaded: boolean;
 }
 
-function ProviderSelector({ provider, setProvider, providers }: ProviderSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false);
+function HarbourTrackCard({
+  track,
+  onPlayPreview,
+  onPlayInPlayer,
+  onDownload,
+  isPlayingPreview,
+  isDownloading,
+  isDownloaded,
+}: HarbourTrackCardProps) {
+  const isFavorite = useStore((s) => s.isFavorite);
+  const toggleFavorite = useStore((s) => s.toggleFavorite);
 
-  const currentProvider = providers.find(p => p.id === provider) || providers[1];
+  return (
+    <div
+      onClick={() => onPlayPreview(track)}
+      className="group relative bg-surface-raised/40 hover:bg-surface-raised rounded-2xl p-3 flex flex-col gap-2.5 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-lg hover:-translate-y-1"
+    >
+      {/* Cover Image & Overlay Play */}
+      <div className="w-full aspect-square rounded-xl bg-surface-overlay flex items-center justify-center relative overflow-hidden group/art">
+        {track.cover_art ? (
+          <img
+            src={track.cover_art}
+            alt={track.title}
+            loading="lazy"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+              (e.target as HTMLImageElement).parentElement
+                ?.querySelector(".fallback-icon")
+                ?.classList.remove("hidden");
+            }}
+          />
+        ) : null}
+        <div
+          className={`fallback-icon ${track.cover_art ? "hidden" : ""
+            } w-full h-full flex items-center justify-center text-text-muted bg-surface-raised/50`}
+        >
+          <Music size={32} className="text-accent/60" />
+        </div>
+
+        {/* Hover / Active Play Button Overlay */}
+        <div
+          className={`absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity flex items-center justify-center ${isPlayingPreview ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayPreview(track);
+            }}
+            className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform ${isPlayingPreview
+              ? "bg-accent text-black scale-100"
+              : "bg-accent text-black hover:scale-110"
+              }`}
+            title={isPlayingPreview ? "Pause Preview" : "Play 30s Preview"}
+          >
+            {isPlayingPreview ? (
+              <Pause size={18} fill="currentColor" />
+            ) : (
+              <Play size={18} fill="currentColor" className="ml-0.5" />
+            )}
+          </button>
+        </div>
+
+
+        {/* Saved Badge */}
+        {isDownloaded && (
+          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1 shadow-md">
+            <Check size={11} strokeWidth={3} />
+            <span>Saved</span>
+          </div>
+        )}
+      </div>
+
+      {/* Track Metadata */}
+      <div className="min-w-0 flex flex-col">
+        <h3 className="font-bold text-xs text-text-primary truncate" title={track.title}>
+          {track.title}
+        </h3>
+        <p className="text-[11px] text-text-muted truncate mt-0.5" title={track.artist}>
+          {track.artist}
+        </p>
+        {(track.genre || track.year) && (
+          <p className="text-[10px] text-accent/80 font-medium truncate mt-0.5">
+            {[track.genre, track.year].filter(Boolean).join(" • ")}
+          </p>
+        )}
+      </div>
+
+      {/* Action Row */}
+      <div className="flex items-center justify-between pt-1 mt-auto">
+        <span className="text-[10px] font-bold text-text-muted/70 bg-surface-overlay/80 px-1.5 py-0.5 rounded">
+          {formatDuration(track.duration)}
+        </span>
+
+        <div className="flex items-center gap-1">
+          {/* Favorite track */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(track);
+            }}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
+              isFavorite(track)
+                ? "text-rose-500 bg-rose-500/10 hover:bg-rose-500/20 scale-105"
+                : "text-text-muted hover:text-rose-400 hover:bg-surface-overlay"
+            }`}
+            title={isFavorite(track) ? "Remove from Favorites" : "Add to Favorites"}
+          >
+            <Heart size={13} fill={isFavorite(track) ? "currentColor" : "none"} />
+          </button>
+
+          {/* Play in main Mewsic player */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayInPlayer(track);
+            }}
+            className="w-7 h-7 rounded-lg hover:bg-surface-overlay text-text-muted hover:text-accent flex items-center justify-center transition-colors"
+            title="Stream in Mewsic Player"
+          >
+            <Headphones size={13} />
+          </button>
+
+          {/* Download to library */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload(track);
+            }}
+            disabled={isDownloading || isDownloaded}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${isDownloaded
+              ? "text-emerald-500 bg-emerald-500/10 cursor-default"
+              : isDownloading
+                ? "text-accent bg-accent/10 cursor-wait"
+                : "hover:bg-accent hover:text-black text-text-muted"
+              }`}
+            title={
+              isDownloaded
+                ? "Already in library"
+                : isDownloading
+                  ? "Downloading..."
+                  : "Download to library"
+            }
+          >
+            {isDownloading ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : isDownloaded ? (
+              <Check size={13} />
+            ) : (
+              <Download size={13} />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ProviderDropdownProps {
+  providers: Array<{ id: string; name: string }>;
+  selectedProvider: string;
+  onSelect: (providerId: string) => void;
+}
+
+function ProviderDropdown({
+  providers,
+  selectedProvider,
+  onSelect,
+}: ProviderDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const current = providers.find((p) => p.id === selectedProvider) || providers[0];
 
   useEffect(() => {
     if (!isOpen) return;
-    const handleClick = () => setIsOpen(false);
-    window.addEventListener("click", handleClick);
-    return () => window.removeEventListener("click", handleClick);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
   return (
-    <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+    <div ref={dropdownRef} className="relative shrink-0">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 sm:gap-3 bg-white/5 border ${isOpen ? 'border-accent ring-1 ring-accent/20' : 'border-white/5 hover:border-white/10'} rounded-xl px-3 sm:px-4 h-11 transition-all text-sm font-medium w-[110px] sm:w-[140px] justify-between group hover:bg-white/10`}
+        className={`h-12 px-4 rounded-2xl bg-surface-raised border ${isOpen
+          ? "border-accent ring-2 ring-accent/20"
+          : "border-border-subtle hover:border-border-glass"
+          } text-xs font-bold text-text-primary transition-all flex items-center gap-2.5 cursor-pointer shadow-sm`}
+        title="Select search provider"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-text-primary truncate">{currentProvider.name}</span>
-        </div>
-        <ChevronDown size={16} className={`text-text-muted shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180 text-accent' : ''}`} />
+        <span>{current.name}</span>
+        <ChevronDown
+          size={14}
+          className={`text-text-muted transition-transform duration-200 ${isOpen ? "rotate-180 text-accent" : ""
+            }`}
+        />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full mt-2 left-0 right-0 bg-surface-overlay border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 animate-scale-in p-1.5">
-          {providers.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                setProvider(p.id);
-                setIsOpen(false);
-              }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${provider === p.id
-                  ? 'bg-accent/10 text-accent font-bold'
-                  : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
-                }`}
-            >
-              <div className="flex items-center gap-2">
+        <div className="absolute top-full mt-2 right-0 w-44 bg-surface-overlay/95 border border-border-glass rounded-2xl overflow-hidden shadow-2xl z-50 animate-scale-in p-1.5 backdrop-blur-xl">
+          <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted/70">
+            Search Provider
+          </div>
+          {providers.map((p) => {
+            const isSelected = p.id === selectedProvider;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  onSelect(p.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all ${isSelected
+                  ? "bg-accent/15 text-accent font-bold"
+                  : "text-text-secondary hover:bg-surface-raised hover:text-text-primary font-medium"
+                  }`}
+              >
                 <span>{p.name}</span>
-              </div>
-              {provider === p.id && <Check size={14} className="text-accent" />}
-            </button>
-          ))}
+                {isSelected && <Check size={14} className="text-accent" />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function SecretMenu({ onClose }: { onClose: () => void }) {
-  const [url, setUrl] = useState("");
-  const [format, setFormat] = useState<"mp3" | "mp4">("mp3");
-  const [ipVersion, setIpVersion] = useState<"ipv4" | "ipv6">("ipv4");
-  const [logs, setLogs] = useState<string[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const logContainerRef = React.useRef<HTMLDivElement>(null);
+export default HarbourView;
 
-  const { musicDir, addNotification, updateNotification, removeNotification } = useStore(useShallow((s) => ({
-    musicDir: s.musicDir,
-    addNotification: s.addNotification,
-    updateNotification: s.updateNotification,
-    removeNotification: s.removeNotification,
-  })));
-
-  useEffect(() => {
-    const unlisten = listen<{ id: string, message: string }>("download-log", (event) => {
-      setLogs(prev => [...prev.slice(-100), event.payload.message]);
-    });
-    return () => { unlisten.then(f => f()); };
-  }, []);
-
-  useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-
-  const handleManualDownload = async () => {
-    if (!url.trim()) return;
-    setIsProcessing(true);
-    const notifId = addNotification("Manual Download Started", "info", 0, true, `yt-dlp [${format.toUpperCase()}]`);
-
-    try {
-      setLogs([]);
-      const targetDir = await invoke<string>("get_downloads_dir").catch(() => musicDir);
-
-      await invoke("download_track", {
-        musicDir: targetDir,
-        title: "Manual Download",
-        artist: "Manual-yt-dlp",
-        album: "Manual",
-        coverArt: "",
-        downloadId: notifId,
-        url: url.trim(),
-        format,
-        ipVersion
-      });
-      updateNotification(notifId, { message: "Manual download complete!", type: "success", loading: false });
-      setTimeout(() => removeNotification(notifId), 5000);
-      setUrl("");
-    } catch (err: any) {
-      updateNotification(notifId, { message: "Manual download failed", type: "error", loading: false });
-      setTimeout(() => removeNotification(notifId), 5000);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-2xl flex flex-col items-center justify-center p-8 animate-fade-in">
-      <div className="w-full max-w-xl glass border border-white/10 rounded-3xl overflow-hidden shadow-[0_0_80px_rgba(0,0,0,0.5)] flex flex-col animate-scale-in">
-        <div className="bg-white/5 border-b border-white/5 p-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent shadow-[0_0_15px_rgba(var(--color-accent),0.2)]">
-              <Terminal size={22} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-text-primary tracking-tight">Manual yt-dlp</h2>
-              <p className="text-[10px] text-text-muted uppercase tracking-[0.2em] font-black">Advanced Media Ingestion</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full hover:bg-white/5 flex items-center justify-center text-text-muted transition-colors"
-          >
-            <AlertCircle size={18} />
-          </button>
-        </div>
-
-        <div className="p-8 space-y-6 overflow-y-auto max-h-[75vh] scrollbar-thin">
-          {
-            // This is the url input part
-          }
-          <div className="space-y-3">
-            <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
-              Source URL / Identifier
-            </label>
-            <div className="relative group">
-              <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-accent transition-colors" size={18} />
-              <input
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-                className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all text-sm font-medium text-text-primary placeholder:text-text-muted"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {
-              // This is the format selection part
-            }
-            <div className="space-y-3">
-              <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
-                Output Format
-              </label>
-              <div className="flex p-1 bg-black/40 border border-white/10 rounded-xl">
-                <button
-                  onClick={() => setFormat("mp3")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${format === "mp3" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
-                >
-                  <FileAudio size={14} />
-                  MP3
-                </button>
-                <button
-                  onClick={() => setFormat("mp4")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${format === "mp4" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
-                >
-                  <FileVideo size={14} />
-                  MP4
-                </button>
-              </div>
-            </div>
-
-            {
-              // This is the ip version selection part
-            }
-            <div className="space-y-3">
-              <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] ml-1">
-                Network Protocol
-              </label>
-              <div className="flex p-1 bg-black/40 border border-white/10 rounded-xl">
-                <button
-                  onClick={() => setIpVersion("ipv4")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${ipVersion === "ipv4" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
-                >
-                  IPv4
-                </button>
-                <button
-                  onClick={() => setIpVersion("ipv6")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${ipVersion === "ipv6" ? "bg-accent text-black" : "text-text-muted hover:text-text-primary"}`}
-                >
-                  IPv6
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-accent-muted/10 border border-accent/20 flex items-center justify-between">
-            <div className="flex gap-3">
-              <Zap size={16} className="text-accent flex-shrink-0" />
-              <div>
-                <p className="text-[11px] font-bold text-text-primary">Always use FFmpeg</p>
-                <p className="text-[9px] text-text-muted leading-tight">Post-processing forced for all extractions</p>
-              </div>
-            </div>
-            <div className="w-8 h-4 bg-accent/20 border border-accent/40 rounded-full relative">
-              <div className="absolute right-1 top-0.5 w-2.5 h-2.5 rounded-full bg-accent" />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 pt-2">
-            <button
-              onClick={onClose}
-              className="px-6 py-3 rounded-xl border border-white/10 text-xs font-bold text-text-muted hover:bg-white/5 transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleManualDownload}
-              disabled={!url.trim() || isProcessing}
-              className="flex-1 bg-accent hover:bg-accent/80 disabled:opacity-30 text-black font-black text-xs uppercase tracking-[0.1em] py-3 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/10 active:scale-[0.98]"
-            >
-              {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              {isProcessing ? "Processing..." : "Initiate Download"}
-            </button>
-          </div>
-
-          {
-            // This is the terminal view part
-          }
-          <div className="space-y-3">
-            <div className="flex items-center justify-between ml-1">
-              <label className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">
-                Live Terminal Output
-              </label>
-              {logs.length > 0 && (
-                <button onClick={() => setLogs([])} className="text-[9px] text-accent/60 hover:text-accent font-bold uppercase tracking-widest">Clear</button>
-              )}
-            </div>
-            <div
-              ref={logContainerRef}
-              className="h-48 bg-black/60 border border-white/5 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto scrollbar-thin selection:bg-accent/30"
-            >
-              {logs.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-text-muted/20 italic">
-                  Waiting for process initialization...
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {logs.map((log, i) => (
-                    <div key={i} className="flex gap-3">
-                      <span className="text-accent/30 shrink-0 select-none">[{i.toString().padStart(3, '0')}]</span>
-                      <span className={log.includes('ERROR') ? 'text-red-400' : log.includes('[download]') ? 'text-accent/80' : 'text-text-secondary'}>
-                        {log}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-black/20 p-4 text-center border-t border-white/5">
-          <p className="text-[9px] font-mono text-text-muted/40 uppercase tracking-widest">
-            Engine: Harbour-X-06 // Protocol: <span className="text-accent/60 font-bold">{ipVersion.toUpperCase()}</span> // Encoder: <span className="text-accent/60 font-bold">FFMPEG</span>
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}

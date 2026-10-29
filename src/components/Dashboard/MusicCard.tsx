@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from "react";
-import { Play } from "lucide-react";
+import { Play, Heart } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useStore } from "../../store";
@@ -127,6 +127,13 @@ export const MusicCard = memo(function MusicCard({
   const isPlaying = useStore(s => s.isPlaying);
   const setQueue = useStore(s => s.setQueue);
   const setIsPlaying = useStore(s => s.setIsPlaying);
+  const isFav = useStore(s => s.isFavorite(track));
+  const toggleFavorite = useStore(s => s.toggleFavorite);
+
+  const handleToggleFavorite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleFavorite(track);
+  };
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -201,8 +208,21 @@ export const MusicCard = memo(function MusicCard({
           <span className="truncate">{track.album}</span>
         </div>
 
-        <div className="w-12 flex-shrink-0 text-right text-xs text-text-muted font-mono pr-2">
-          {formatDuration(track.duration)}
+        <div className="flex items-center gap-1.5 flex-shrink-0 pr-2">
+          <button
+            onClick={handleToggleFavorite}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
+              isFav
+                ? "text-rose-500 hover:text-rose-400 scale-105"
+                : "text-text-muted hover:text-rose-400 opacity-0 group-hover:opacity-100"
+            }`}
+            title={isFav ? "Remove from Favorites" : "Add to Favorites"}
+          >
+            <Heart size={14} fill={isFav ? "currentColor" : "none"} />
+          </button>
+          <div className="w-12 text-right text-xs text-text-muted font-mono">
+            {formatDuration(track.duration)}
+          </div>
         </div>
       </div>
     );
@@ -263,6 +283,17 @@ export const MusicCard = memo(function MusicCard({
           <span className="text-[11px] text-text-muted font-mono">
             {formatDuration(track.duration)}
           </span>
+          <button
+            onClick={handleToggleFavorite}
+            className={`w-6 h-6 rounded-md flex items-center justify-center transition-all ${
+              isFav
+                ? "text-rose-500 hover:text-rose-400 scale-110"
+                : "text-text-muted hover:text-rose-400 opacity-0 group-hover:opacity-100"
+            }`}
+            title={isFav ? "Remove from Favorites" : "Add to Favorites"}
+          >
+            <Heart size={13} fill={isFav ? "currentColor" : "none"} />
+          </button>
         </div>
       </div>
     </div>

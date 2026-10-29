@@ -1773,11 +1773,12 @@ async fn download_jiosaavn_direct(
         downloaded += chunk.len() as u64;
 
         if total_size > 0 {
-            let progress = (downloaded as f64 / total_size as f64) * 100.0;
-            if progress - last_progress >= 1.0 || progress >= 100.0 {
+            let stream_ratio = downloaded as f64 / total_size as f64;
+            let progress = 10.0 + (stream_ratio * 75.0);
+            if progress - last_progress >= 1.0 {
                 let _ = app_handle.emit("download-progress", DownloadProgress {
                     id: download_id.to_string(),
-                    progress,
+                    progress: progress.min(85.0),
                 });
                 last_progress = progress;
             }
@@ -1908,6 +1909,10 @@ async fn download_track(
         || url.as_deref().unwrap_or_default().contains("saavncdn.com");
 
     if is_jiosaavn {
+        let _ = app_handle.emit("download-progress", DownloadProgress {
+            id: download_id.clone(),
+            progress: 5.0,
+        });
         let _ = app_handle.emit("download-log", DownloadLog {
             id: download_id.clone(),
             message: "Resolving 320kbps stream from JioSaavn CDN...".to_string(),
@@ -1955,8 +1960,17 @@ async fn download_track(
                     return Ok(target_path.to_string_lossy().to_string());
                 }
 
-                // Stream audio bytes directly from CDN
+                // Stream audio bytes directly from CDN (maps 10% -> 85%)
                 download_jiosaavn_direct(&app_handle, &client, &jio.cdn_url, &target_path, &download_id).await?;
+
+                let _ = app_handle.emit("download-progress", DownloadProgress {
+                    id: download_id.clone(),
+                    progress: 88.0,
+                });
+                let _ = app_handle.emit("download-log", DownloadLog {
+                    id: download_id.clone(),
+                    message: "Embedding tags, cover art, and lyrics...".to_string(),
+                });
 
                 // Embed metadata, cover art, and lyrics
                 tag_downloaded_file(
@@ -2005,8 +2019,21 @@ async fn download_track(
     let target_path = PathBuf::from(&music_dir).join(&filename);
 
     if target_path.exists() {
+        let _ = app_handle.emit("download-progress", DownloadProgress {
+            id: download_id.clone(),
+            progress: 100.0,
+        });
         return Ok(target_path.to_string_lossy().to_string());
     }
+
+    let _ = app_handle.emit("download-progress", DownloadProgress {
+        id: download_id.clone(),
+        progress: 6.0,
+    });
+    let _ = app_handle.emit("download-log", DownloadLog {
+        id: download_id.clone(),
+        message: format!("Searching audio source for \"{} - {}\"...", search_artist, title),
+    });
 
     // Determine query: If URL is an iTunes / Apple Music link (or not a direct stream), search YouTube for best audio match
     let query = if let Some(ref u) = url {
@@ -2084,6 +2111,11 @@ async fn download_track(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
+    let _ = app_handle.emit("download-progress", DownloadProgress {
+        id: download_id.clone(),
+        progress: 12.0,
+    });
+
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn download process: {}", e))?;
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
@@ -2106,6 +2138,7 @@ async fn download_track(
         err_lines.join("\n")
     });
 
+    let mut current_progress = 12.0;
     let reader = BufReader::new(stdout);
     for line in reader.lines().flatten() {
         let _ = app_handle.emit("download-log", DownloadLog {
@@ -2113,19 +2146,36 @@ async fn download_track(
             message: line.clone(),
         });
 
-        if line.contains("[download]") && line.contains('%') {
+        if (line.contains("[youtube]") || line.contains("[info]")) && current_progress < 20.0 {
+            current_progress = 20.0;
+            let _ = app_handle.emit("download-progress", DownloadProgress {
+                id: download_id.clone(),
+                progress: current_progress,
+            });
+        } else if line.contains("[download]") && line.contains('%') {
             // Parse percentage like "  10.5%"
             let parts: Vec<&str> = line.split_whitespace().collect();
             for p in parts {
                 if p.contains('%') {
                     if let Ok(val) = p.replace('%', "").parse::<f64>() {
-                        let _ = app_handle.emit("download-progress", DownloadProgress {
-                            id: download_id.clone(),
-                            progress: val,
-                        });
+                        // Map yt-dlp's 0%..100% to 20.0%..80.0%
+                        let mapped = 20.0 + (val.clamp(0.0, 100.0) / 100.0) * 60.0;
+                        if mapped > current_progress {
+                            current_progress = mapped;
+                            let _ = app_handle.emit("download-progress", DownloadProgress {
+                                id: download_id.clone(),
+                                progress: current_progress,
+                            });
+                        }
                     }
                 }
             }
+        } else if (line.contains("[ExtractAudio]") || line.contains("[ffmpeg]")) && current_progress < 84.0 {
+            current_progress = 84.0;
+            let _ = app_handle.emit("download-progress", DownloadProgress {
+                id: download_id.clone(),
+                progress: current_progress,
+            });
         }
     }
 
@@ -2150,6 +2200,15 @@ async fn download_track(
     }
 
     // --- Automatic Metadata Tagging ---
+    let _ = app_handle.emit("download-progress", DownloadProgress {
+        id: download_id.clone(),
+        progress: 88.0,
+    });
+    let _ = app_handle.emit("download-log", DownloadLog {
+        id: download_id.clone(),
+        message: "Applying metadata, cover art and lyrics...".to_string(),
+    });
+
     tag_downloaded_file(
         &target_path,
         &title,
@@ -2161,6 +2220,15 @@ async fn download_track(
         genre.as_deref(),
         year,
     ).await;
+
+    let _ = app_handle.emit("download-progress", DownloadProgress {
+        id: download_id.clone(),
+        progress: 100.0,
+    });
+    let _ = app_handle.emit("download-log", DownloadLog {
+        id: download_id.clone(),
+        message: "Download complete".to_string(),
+    });
 
     Ok(target_path.to_string_lossy().to_string())
 }

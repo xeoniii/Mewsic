@@ -193,6 +193,8 @@ export function HomeView() {
     setActiveView,
     setActivePlaylist,
     setShowCreatePlaylist,
+    favorites,
+    isFavorite,
   } = useStore(
     useShallow((s) => ({
       isScanning: s.isScanning,
@@ -208,6 +210,8 @@ export function HomeView() {
       setActiveView: s.setActiveView,
       setActivePlaylist: s.setActivePlaylist,
       setShowCreatePlaylist: s.setShowCreatePlaylist,
+      favorites: s.favorites,
+      isFavorite: s.isFavorite,
     }))
   );
 
@@ -266,7 +270,7 @@ export function HomeView() {
   }, [guiScale]);
 
   // ── "Recommended for you" Daily 4 AM Algorithm ──
-  // Changes every day at 4:00 AM local time.
+  // Changes every day at 4:00 AM local time, heavily influenced by user favorites!
   const libraryTracks = useMemo(() => {
     if (!displayTracks.length) return [];
 
@@ -274,6 +278,18 @@ export function HomeView() {
     const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
     const shiftedDate = new Date(now - FOUR_HOURS_MS);
     const dayKey = `${shiftedDate.getFullYear()}-${shiftedDate.getMonth() + 1}-${shiftedDate.getDate()}`;
+
+    // Compute favorite counts per artist & genre to boost related recommendations
+    const favoriteArtistsCount: Record<string, number> = {};
+    const favoriteGenresCount: Record<string, number> = {};
+    displayTracks.forEach((t) => {
+      if (isFavorite(t)) {
+        const normA = (t.artist || "").toLowerCase().trim();
+        if (normA) favoriteArtistsCount[normA] = (favoriteArtistsCount[normA] || 0) + 1;
+        const normG = (t.genre || "").toLowerCase().trim();
+        if (normG) favoriteGenresCount[normG] = (favoriteGenresCount[normG] || 0) + 1;
+      }
+    });
 
     const scored = displayTracks.map((track) => {
       const listenDurationSec = (trackListenDurations && trackListenDurations[track.id]) || 0;
@@ -284,7 +300,25 @@ export function HomeView() {
       const recencyBonus = Math.max(0, 1.0 - (ageDays / 45.0));
       const dateWeight = 1.0 + (recencyBonus * 0.75);
 
-      const totalWeight = Math.max(0.1, durationWeight * dateWeight);
+      // ── Favorites Impact ──
+      // 1. Direct song favorite boost: 4x multiplier
+      const isFav = isFavorite(track);
+      const directFavBonus = isFav ? 4.0 : 1.0;
+
+      // 2. Artist affinity boost: +50% per favorited song by this artist (up to 3x)
+      const normA = (track.artist || "").toLowerCase().trim();
+      const artistFavCount = favoriteArtistsCount[normA] || 0;
+      const artistFavBonus = 1.0 + Math.min(2.0, artistFavCount * 0.5);
+
+      // 3. Genre affinity boost: +25% per favorited song in this genre (up to 2x)
+      const normG = (track.genre || "").toLowerCase().trim();
+      const genreFavCount = favoriteGenresCount[normG] || 0;
+      const genreFavBonus = 1.0 + Math.min(1.0, genreFavCount * 0.25);
+
+      const totalWeight = Math.max(
+        0.1,
+        durationWeight * dateWeight * directFavBonus * artistFavBonus * genreFavBonus
+      );
 
       const rawDailyRand = getDailyRandom(`${dayKey}:${track.id}`);
       const rand = Math.max(0.0001, Math.min(0.9999, rawDailyRand));
@@ -297,7 +331,7 @@ export function HomeView() {
       .sort((a, b) => b.key - a.key)
       .slice(0, targetCount)
       .map((item) => item.track);
-  }, [displayTracks, trackListenDurations, targetCount]);
+  }, [displayTracks, trackListenDurations, targetCount, favorites, isFavorite]);
 
   // ── "Recent discoveries" (Recently Added) ──
   const recentDiscoveries = useMemo(() => {

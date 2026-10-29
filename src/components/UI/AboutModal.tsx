@@ -7,7 +7,7 @@ import { useStore } from "../../store";
 
 export function AboutModal() {
   const { setShowAbout } = useStore();
-  const [appVersion, setAppVersion] = useState<string>("1.1.0");
+  const [appVersion, setAppVersion] = useState<string>("1.2.0");
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => { });
@@ -45,8 +45,8 @@ export function AboutModal() {
         onClick={(e) => e.stopPropagation()}
       >
         {
-  // This is the header section
-}
+          // This is the header section
+        }
         <div className="flex items-center justify-between px-8 py-6 border-b border-border-subtle">
           <h2 className="font-display text-xl font-semibold text-text-primary">About Mewsic</h2>
           <button onClick={() => setShowAbout(false)} className="btn-icon p-2 hover:bg-surface-overlay rounded-xl transition-all">
@@ -55,8 +55,8 @@ export function AboutModal() {
         </div>
 
         {
-  // Here is the main content
-}
+          // Here is the main content
+        }
         <div className="p-8">
           <div className="flex flex-col p-8 rounded-2xl bg-surface-overlay border border-border-subtle gap-8 w-full text-left">
             <div className="flex justify-between items-center gap-4">
@@ -72,7 +72,7 @@ export function AboutModal() {
             </div>
 
             <p className="text-sm text-text-secondary leading-relaxed">
-              A lightning-fast, highly customizable music player built for the modern era. Mewsic combines advanced audio engineering with a stunning interface to bring your local music library to life. Completely open-source, with no telemetry and no ads—just pure audio.
+              A lightning-fast, highly customizable music player built for the modern era. Mewsic combines advanced audio engineering with a stunning interface to bring your local music library to life. Completely open-source, no ads—just pure audio.
             </p>
 
             <div className="flex justify-between items-end border-t border-border-subtle pt-5 mt-1">
@@ -96,7 +96,7 @@ export function AboutModal() {
               <div className="flex flex-col items-end">
                 <p className="text-[9px] text-text-muted/60 font-mono uppercase tracking-[0.2em]">Build: {getBuildId()}</p>
                 <p className="text-[9px] text-text-muted/60 font-mono uppercase tracking-[0.2em] mt-0.5">{getOSName()}</p>
-                <p className="text-[9px] text-accent/60 font-mono uppercase tracking-[0.2em] mt-0.5">22,132 Lines of code</p>
+                <p className="text-[9px] text-accent/60 font-mono uppercase tracking-[0.2em] mt-0.5">23,849 Lines of code</p>
               </div>
             </div>
           </div>
