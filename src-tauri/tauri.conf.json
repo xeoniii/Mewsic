@@ -147,8 +147,8 @@
         "title": "Mewsic",
         "width": 1280,
         "height": 800,
-        "minWidth": 360,
-        "minHeight": 500,
+        "minWidth": 850,
+        "minHeight": 750,
         "decorations": false,
         "transparent": true,
         "devtools": true

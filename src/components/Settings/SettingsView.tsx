@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   Palette, FolderOpen, RefreshCw, Trash2, Check, RotateCcw,
   Info, Music2, Volume2, FolderInput, Sun, Moon, Keyboard, Monitor, Bell, Zap, FileUp, FolderPlus, Database, Power,
-  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Crop
+  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Crop, Radio
 } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useStore } from "../../store";
@@ -80,6 +80,8 @@ export function SettingsView() {
     smoothScrollEnabled = true,
     setSmoothScrollEnabled,
     setShowUpdateModal,
+    anonymousPresenceEnabled,
+    setAnonymousPresenceEnabled,
   } = useStore(useShallow((s) => ({
     accentColor: s.accentColor,
     customAccentColor: s.customAccentColor,
@@ -113,6 +115,8 @@ export function SettingsView() {
     smoothScrollEnabled: s.smoothScrollEnabled,
     setSmoothScrollEnabled: s.setSmoothScrollEnabled,
     setShowUpdateModal: s.setShowUpdateModal,
+    anonymousPresenceEnabled: s.anonymousPresenceEnabled,
+    setAnonymousPresenceEnabled: s.setAnonymousPresenceEnabled,
   })));
 
   const { displayTracks, displayMusicDir, displayPlaylistsDir } = useDisplayData();
@@ -133,7 +137,7 @@ export function SettingsView() {
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("1.2.0");
+  const [appVersion, setAppVersion] = useState<string>("1.2.1");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -554,6 +558,20 @@ export function SettingsView() {
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" className="sr-only peer" checked={roundedCorners} onChange={(e) => setRoundedCorners(e.target.checked)} />
+                    <div className="w-9 h-5 bg-surface-raised rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent border border-border-subtle" />
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-overlay border border-border-subtle">
+                  <div className="flex items-center gap-2.5">
+                    <Radio size={14} className={anonymousPresenceEnabled ? "text-accent" : "text-text-muted"} />
+                    <div>
+                      <p className="text-[13px] font-medium text-text-primary leading-none">Anonymous Live Presence</p>
+                      <p className="text-[9px] text-text-muted mt-1">Sends a lightweight 5-minute heartbeat to track active listeners</p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" className="sr-only peer" checked={anonymousPresenceEnabled} onChange={(e) => setAnonymousPresenceEnabled(e.target.checked)} />
                     <div className="w-9 h-5 bg-surface-raised rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent border border-border-subtle" />
                   </label>
                 </div>

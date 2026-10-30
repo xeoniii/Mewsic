@@ -1,0 +1,196 @@
+================================================================================
+MEWSIC LIVE PRESENCE INTEGRATION GUIDE FOR XEONIII.GITHUB.IO
+================================================================================
+
+TARGET WEBSITE: xeoniii.github.io
+SERVICE: Mewsic Live Active Users Counter
+BACKEND ENDPOINT: https://mewsic-presence.imrishan320.workers.dev
+
+--------------------------------------------------------------------------------
+1. OVERVIEW & OBJECTIVE
+--------------------------------------------------------------------------------
+Mewsic uses a Cloudflare Worker + D1 backend to monitor live active desktop app 
+instances via a 5-minute heartbeat system.
+
+The website agent should add a live active users indicator/badge (e.g., near the
+Mewsic download button, hero section, or project card) on xeoniii.github.io to
+showcase how many people are currently listening/using Mewsic.
+
+--------------------------------------------------------------------------------
+2. API SPECIFICATION
+--------------------------------------------------------------------------------
+- URL: https://mewsic-presence.imrishan320.workers.dev/active-users
+- Method: GET
+- Headers: None required
+- CORS: Enabled (Access-Control-Allow-Origin: *)
+- Response Schema (JSON):
+  {
+    "activeUsers": 1
+  }
+
+Notes:
+- If the count is 0, activeUsers will be 0.
+- If the endpoint cannot be reached or fails, handle gracefully (show fallback or hide badge).
+
+--------------------------------------------------------------------------------
+3. RECOMMENDED POLLING FREQUENCY
+--------------------------------------------------------------------------------
+- Recommended interval: Fetch on initial page load, then poll every 30 to 60 seconds.
+- Cloudflare free tier allows 100,000 requests/day, so polling every 30-60s per visitor
+  is well within free limits.
+
+--------------------------------------------------------------------------------
+4. READY-TO-USE CODE IMPLEMENTATIONS
+--------------------------------------------------------------------------------
+
+A. VANILLA HTML + JAVASCRIPT IMPLEMENTATION
+-------------------------------------------
+Add this HTML wherever the Mewsic card or download button is located:
+
+<div id="mewsic-live-badge" class="mewsic-presence-badge" style="display: none;">
+  <span class="mewsic-pulse-dot"></span>
+  <span id="mewsic-active-count">0</span>
+  <span id="mewsic-active-label">listening now</span>
+</div>
+
+Add this CSS to your stylesheet:
+
+<style>
+.mewsic-presence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 9999px;
+  backdrop-filter: blur(8px);
+  user-select: none;
+  transition: opacity 0.3s ease;
+}
+
+.mewsic-pulse-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: mewsic-pulse 2s infinite;
+}
+
+@keyframes mewsic-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+</style>
+
+Add this JavaScript at the bottom of the page or in your main script:
+
+<script>
+(function initMewsicPresence() {
+  const ENDPOINT = "https://mewsic-presence.imrishan320.workers.dev/active-users";
+  const badgeEl = document.getElementById("mewsic-live-badge");
+  const countEl = document.getElementById("mewsic-active-count");
+  const labelEl = document.getElementById("mewsic-active-label");
+
+  async function updateActiveUsers() {
+    try {
+      const response = await fetch(ENDPOINT, { cache: "no-store" });
+      if (!response.ok) throw new Error("Network response not ok");
+      const data = await response.json();
+      
+      const count = typeof data.activeUsers === "number" ? data.activeUsers : 0;
+      
+      if (badgeEl && countEl) {
+        countEl.textContent = count;
+        if (labelEl) {
+          labelEl.textContent = count === 1 ? "user listening now" : "users listening now";
+        }
+        badgeEl.style.display = "inline-flex";
+      }
+    } catch (err) {
+      // Graceful fallback: keep hidden or show neutral state if offline
+      console.warn("Mewsic presence unreachable:", err);
+    }
+  }
+
+  // Initial fetch
+  updateActiveUsers();
+
+  // Refresh every 30 seconds
+  setInterval(updateActiveUsers, 30000);
+})();
+</script>
+
+
+B. REACT / NEXT.JS COMPONENT (IF USING REACT)
+----------------------------------------------
+import React, { useEffect, useState } from "react";
+
+export function MewsicLiveBadge() {
+  const [activeUsers, setActiveUsers] = useState<number | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchUsers() {
+      try {
+        const res = await fetch("https://mewsic-presence.imrishan320.workers.dev/active-users", {
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && typeof data.activeUsers === "number") {
+            setActiveUsers(data.activeUsers);
+          }
+        }
+      } catch (e) {
+        // Silent catch
+      }
+    }
+
+    fetchUsers();
+    const interval = setInterval(fetchUsers, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (activeUsers === null) return null;
+
+  return (
+    <div className="inline-flex items-center gap-2 px-3 py-1 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full backdrop-blur-sm">
+      <span className="relative flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+      </span>
+      <span>
+        {activeUsers} {activeUsers === 1 ? "user" : "users"} listening now
+      </span>
+    </div>
+  );
+}
+
+--------------------------------------------------------------------------------
+5. VERIFICATION STEPS FOR THE WEBSITE AGENT
+--------------------------------------------------------------------------------
+1. Test the endpoint in the browser or terminal:
+   curl https://mewsic-presence.imrishan320.workers.dev/active-users
+   Response must be: {"activeUsers": <number>}
+2. Place the badge component on the page (e.g. beside "Download Mewsic" or in the project showcase card).
+3. Confirm that the badge loads the real-time active users number with a pulsing green indicator.
+================================================================================

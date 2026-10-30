@@ -5,7 +5,7 @@ import { useLibrary } from "./hooks/useLibrary";
 import { useMediaControls } from "./hooks/useMediaControls";
 import { usePlugins } from "./hooks/usePlugins";
 import { getAppPaths, setTrayEnabled, toggleFullscreen, forceQuit } from "./utils/tauriApi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
@@ -33,6 +33,7 @@ import { deleteTrack } from "./utils/tauriApi";
 import { TitleBar } from "./components/UI/TitleBar";
 import { Cyberdeck } from "./components/UI/Cyberdeck";
 import { DevOverlay } from "./components/UI/DevOverlay";
+import { presence } from "./utils/presence";
 import { GlobalTooltip } from "./components/UI/GlobalTooltip";
 import { PluginView } from "./components/UI/PluginView";
 import { UpdateModal } from "./components/UI/UpdateModal";
@@ -167,6 +168,9 @@ export default function App() {
   }, [lowEndMode]);
 
   useEffect(() => {
+    // Set minimum window size limit
+    getCurrentWindow().setMinSize(new LogicalSize(850, 750)).catch(() => {});
+
     // Reveal window immediately once React mounts the DOM (avoids white flash and outline pop-in)
     requestAnimationFrame(() => {
       invoke("show_window").catch(() => {});
@@ -222,30 +226,49 @@ export default function App() {
       if (isMounted) setIsMaximized(event.payload);
     });
 
-    const scheduleChecks = () => {
-      updateWindowState();
-      setTimeout(updateWindowState, 50);
-      setTimeout(updateWindowState, 150);
-      setTimeout(updateWindowState, 300);
+    let debounceTimer: any = null;
+    let resizeEndTimer: any = null;
+
+    const handleResize = () => {
+      document.body.classList.add("is-resizing");
+      if (resizeEndTimer) clearTimeout(resizeEndTimer);
+      resizeEndTimer = setTimeout(() => {
+        document.body.classList.remove("is-resizing");
+      }, 120);
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        updateWindowState();
+      }, 150);
     };
 
-    const unlistenResize = getCurrentWindow().onResized(scheduleChecks);
+    const unlistenResize = getCurrentWindow().onResized(handleResize);
 
     // DOM resize listener
-    window.addEventListener("resize", scheduleChecks);
+    window.addEventListener("resize", handleResize, { passive: true });
 
     return () => {
       isMounted = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (resizeEndTimer) clearTimeout(resizeEndTimer);
+      document.body.classList.remove("is-resizing");
       unlistenFullscreen.then((fn) => fn());
       unlistenMaximized.then((fn) => fn());
       unlistenResize.then((fn) => fn());
-      window.removeEventListener("resize", scheduleChecks);
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
   useEffect(() => {
     document.documentElement.dataset.fullscreen = isFullscreen.toString();
   }, [isFullscreen]);
+
+  // Live Presence 5-minute heartbeat tracking
+  const anonymousPresenceEnabled = useStore((s) => s.anonymousPresenceEnabled);
+  useEffect(() => {
+    presence.start(anonymousPresenceEnabled);
+    return () => presence.stop();
+  }, [anonymousPresenceEnabled]);
 
   useEffect(() => {
     async function bootstrap() {
@@ -432,13 +455,13 @@ export default function App() {
         if (e.repeat) return;
         e.preventDefault();
         window.location.reload();
-      } else if (e.ctrlKey && e.shiftKey && e.code === "KeyD") {
+      } else if (e.key === "F3" || (e.ctrlKey && e.shiftKey && e.code === "KeyD")) {
         if (e.repeat) return;
         e.preventDefault();
         const { isDevMode, setDevMode, addNotification } = useStore.getState();
         const newState = !isDevMode;
         setDevMode(newState);
-        addNotification(`Developer Mode: ${newState ? 'ON' : 'OFF'}`, newState ? "success" : "info");
+        addNotification(`Debug Screen (F3): ${newState ? 'ON' : 'OFF'}`, newState ? "success" : "info");
       } else if (e.key === "Escape") {
         if (e.repeat) return;
         // Close any open modals

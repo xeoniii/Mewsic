@@ -3989,11 +3989,17 @@ fn main() {
                 | tauri::WindowEvent::Moved(_) 
                 | tauri::WindowEvent::Focused(_) 
                 | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                    // Emit a custom event when window state might have changed
+                    static LAST_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+                    static LAST_MAXIMIZED: AtomicBool = AtomicBool::new(true);
+
                     let is_full = window.is_fullscreen().unwrap_or(false);
-                    let _ = window.emit("fullscreen-changed", is_full);
+                    if LAST_FULLSCREEN.swap(is_full, Ordering::Relaxed) != is_full {
+                        let _ = window.emit("fullscreen-changed", is_full);
+                    }
                     let is_max = window.is_maximized().unwrap_or(false);
-                    let _ = window.emit("maximized-changed", is_max);
+                    if LAST_MAXIMIZED.swap(is_max, Ordering::Relaxed) != is_max {
+                        let _ = window.emit("maximized-changed", is_max);
+                    }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     let app_state = window.state::<AppState>();

@@ -7,7 +7,7 @@ import { useStore } from "../../store";
 
 export function AboutModal() {
   const { setShowAbout } = useStore();
-  const [appVersion, setAppVersion] = useState<string>("1.2.0");
+  const [appVersion, setAppVersion] = useState<string>("1.2.1");
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => { });
@@ -96,7 +96,7 @@ export function AboutModal() {
               <div className="flex flex-col items-end">
                 <p className="text-[9px] text-text-muted/60 font-mono uppercase tracking-[0.2em]">Build: {getBuildId()}</p>
                 <p className="text-[9px] text-text-muted/60 font-mono uppercase tracking-[0.2em] mt-0.5">{getOSName()}</p>
-                <p className="text-[9px] text-accent/60 font-mono uppercase tracking-[0.2em] mt-0.5">23,849 Lines of code</p>
+                <p className="text-[9px] text-accent/60 font-mono uppercase tracking-[0.2em] mt-0.5">24,242 Lines of code</p>
               </div>
             </div>
           </div>

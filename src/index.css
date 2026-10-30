@@ -203,6 +203,14 @@ body {
   transition: color 0.3s ease;
 }
 
+/* Water-smooth window resize: disable transitions & animations while dragging window border */
+body.is-resizing *,
+body.is-resizing *::before,
+body.is-resizing *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+}
+
 #root { height: 100%; display: flex; flex-direction: column; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -274,8 +282,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .vertical-range {
-  writing-mode: bt-lr; /* IE */
-  -webkit-appearance: slider-vertical; /* WebKit */
+  writing-mode: vertical-lr;
+  direction: rtl;
   width: 20px;
   background: transparent;
 }

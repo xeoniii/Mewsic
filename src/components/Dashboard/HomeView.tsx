@@ -24,7 +24,7 @@ import { getCoverArt } from "../../utils/tauriApi";
 import { MusicCard } from "./MusicCard";
 import type { Track, Playlist } from "../../types";
 
-export function StatCard({
+export const StatCard = memo(function StatCard({
   icon,
   label,
   value,
@@ -46,7 +46,7 @@ export function StatCard({
       </div>
     </div>
   );
-}
+});
 
 // Deterministic fast hash for 24-hour daily randomness
 function getDailyRandom(seedStr: string): number {
@@ -63,11 +63,13 @@ const HomePlaylistCard = memo(function HomePlaylistCard({
   displayTracks,
   onOpen,
   onPlay,
+  viewMode = "grid",
 }: {
   playlist: Playlist;
   displayTracks: Track[];
   onOpen: (id: string) => void;
   onPlay: (playlist: Playlist) => void;
+  viewMode?: "grid" | "list";
 }) {
   const [coverUrl, setCoverUrl] = useState<string | null>(playlist.coverArt || null);
   const [imgError, setImgError] = useState(false);
@@ -108,6 +110,116 @@ const HomePlaylistCard = memo(function HomePlaylistCard({
       setCoverUrl(null);
     }
   }, [playlist.coverArt, firstTrack, lowEndMode]);
+
+  if (viewMode === "list") {
+    return (
+      <div
+        onClick={() => onOpen(playlist.id)}
+        className={`group flex items-center gap-4 px-4 py-2.5 rounded-xl cursor-pointer transition-colors w-full border ${
+          isThisActive
+            ? "bg-surface-raised border-accent shadow-sm"
+            : "bg-surface-raised/40 hover:bg-surface-raised border-border-subtle hover:border-accent/30 shadow-none"
+        }`}
+      >
+        <div className="w-10 h-10 rounded-lg bg-surface-overlay flex items-center justify-center relative overflow-hidden flex-shrink-0">
+          {coverUrl && !imgError ? (
+            <img
+              src={coverUrl}
+              alt={playlist.name}
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+              draggable={false}
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-text-muted bg-surface-raised/50">
+              <ListMusic size={20} className="text-accent/60 group-hover:text-accent transition-colors" />
+            </div>
+          )}
+
+          {/* Hover / Active Play Button Overlay on Thumbnail */}
+          <div
+            className={`absolute inset-0 bg-black/40 transition-opacity duration-200 flex items-center justify-center ${
+              isThisPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay(playlist);
+              }}
+              className="w-7 h-7 rounded-full bg-accent text-black flex items-center justify-center shadow-accent scale-95 group-hover:scale-100 active:scale-90 transition-transform duration-150 hover:brightness-110"
+              title={isThisPlaying ? `Pause ${playlist.name}` : `Play ${playlist.name}`}
+            >
+              {isThisPlaying ? (
+                <Pause size={12} fill="currentColor" />
+              ) : (
+                <Play size={12} fill="currentColor" className="ml-0.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-sm font-semibold truncate transition-colors ${
+                isThisActive ? "text-accent" : "text-text-primary group-hover:text-accent"
+              }`}
+              title={playlist.name}
+            >
+              {playlist.name}
+            </span>
+            {!playlist.filePath && (
+              <span className="text-[9px] font-semibold tracking-wider uppercase bg-accent/15 border border-accent/30 text-accent px-1.5 py-0.5 rounded flex-shrink-0">
+                Virtual
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-text-secondary truncate mt-0.5">
+            {playlist.trackIds?.length || 0} tracks
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isThisPlaying && (
+            <div className="flex gap-1 items-end h-4 pb-0.5 mr-1">
+              <div className="eq-bar" />
+              <div className="eq-bar" />
+              <div className="eq-bar" />
+            </div>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlay(playlist);
+            }}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+              isThisActive
+                ? "text-accent hover:bg-accent/10"
+                : "text-text-muted hover:text-accent hover:bg-surface-overlay opacity-0 group-hover:opacity-100"
+            }`}
+            title={isThisPlaying ? `Pause ${playlist.name}` : `Play ${playlist.name}`}
+          >
+            {isThisPlaying ? (
+              <Pause size={15} fill="currentColor" />
+            ) : (
+              <Play size={15} fill="currentColor" className="ml-0.5" />
+            )}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(playlist.id);
+            }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:text-accent hover:bg-surface-overlay transition-colors"
+            title={`Open ${playlist.name}`}
+          >
+            <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -261,17 +373,64 @@ export function HomeView() {
     }
   }, [queueSourceId, isPlaying, displayTracks, setQueue, setIsPlaying, setActivePlaylist, setActiveView]);
 
-  // Target card count based on interface scale:
-  // 6 cards for 1.65x and above, 8 cards for 0.9x and below, 7 cards for default
-  const targetCount = useMemo(() => {
-    if (guiScale >= 1.65) return 6;
-    if (guiScale <= 0.9) return 8;
-    return 7;
-  }, [guiScale]);
+  const calcColumns = useCallback((width: number) => {
+    const GRID_GAP = 16;
+    const MIN_CARD_WIDTH = 180;
+    const availableWidth = Math.max(300, width - 64);
+    return Math.max(1, Math.floor((availableWidth + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP)));
+  }, []);
+
+  // Store targetCount directly so React ONLY re-renders when column count actually changes (not on every pixel)
+  const [targetCount, setTargetCount] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const w = Math.max(300, window.innerWidth - 240);
+      return Math.max(1, Math.floor((w - 64 + 16) / (180 + 16)));
+    }
+    return 6;
+  });
+
+  // RAF-throttled ResizeObserver: prevents jank and prevents re-rendering when column count remains the same
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let rafId: number | null = null;
+    const updateColumns = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!containerRef.current) return;
+        const width = containerRef.current.clientWidth;
+        if (width > 0) {
+          const nextCols = calcColumns(width);
+          setTargetCount((prev) => (prev !== nextCols ? nextCols : prev));
+        }
+      });
+    };
+
+    updateColumns();
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          updateColumns();
+        }
+      }
+    });
+
+    ro.observe(el);
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
+  }, [calcColumns, guiScale]);
+
+  const tracksLimit = homeViewMode === "grid" ? targetCount : Math.max(8, targetCount);
 
   // ── "Recommended for you" Daily 4 AM Algorithm ──
-  // Changes every day at 4:00 AM local time, heavily influenced by user favorites!
-  const libraryTracks = useMemo(() => {
+  // Pre-sort tracks: heavy scoring runs ONLY when library, favorites, or listen stats change (NEVER during resize!)
+  const sortedRecommendedTracks = useMemo(() => {
     if (!displayTracks.length) return [];
 
     const now = Date.now();
@@ -329,25 +488,38 @@ export function HomeView() {
 
     return scored
       .sort((a, b) => b.key - a.key)
-      .slice(0, targetCount)
       .map((item) => item.track);
-  }, [displayTracks, trackListenDurations, targetCount, favorites, isFavorite]);
+  }, [displayTracks, trackListenDurations, favorites, isFavorite]);
+
+  // Fast O(1) slice for display
+  const libraryTracks = useMemo(() => {
+    return sortedRecommendedTracks.slice(0, tracksLimit);
+  }, [sortedRecommendedTracks, tracksLimit]);
 
   // ── "Recent discoveries" (Recently Added) ──
-  const recentDiscoveries = useMemo(() => {
-    return [...displayTracks]
-      .sort((a, b) => {
-        const timeA = (a.dateAdded && a.dateAdded < 10_000_000_000 ? a.dateAdded * 1000 : a.dateAdded) || 0;
-        const timeB = (b.dateAdded && b.dateAdded < 10_000_000_000 ? b.dateAdded * 1000 : b.dateAdded) || 0;
-        return timeB - timeA;
-      })
-      .slice(0, targetCount);
-  }, [displayTracks, targetCount]);
+  // Pre-sort once when displayTracks changes (NEVER during resize!)
+  const sortedRecentDiscoveries = useMemo(() => {
+    return [...displayTracks].sort((a, b) => {
+      const timeA = (a.dateAdded && a.dateAdded < 10_000_000_000 ? a.dateAdded * 1000 : a.dateAdded) || 0;
+      const timeB = (b.dateAdded && b.dateAdded < 10_000_000_000 ? b.dateAdded * 1000 : b.dateAdded) || 0;
+      return timeB - timeA;
+    });
+  }, [displayTracks]);
 
-  // Playlists to show: targetCount - 1 slots for playlists + 1 slot for "New Playlist" card
+  // Fast O(1) slice for display
+  const recentDiscoveries = useMemo(() => {
+    return sortedRecentDiscoveries.slice(0, tracksLimit);
+  }, [sortedRecentDiscoveries, tracksLimit]);
+
+  // Playlists to show:
+  // In grid mode: targetCount - 1 slots for playlists + 1 slot for "New Playlist" card
+  // In list mode: up to Math.max(6, targetCount) playlists
   const visiblePlaylists = useMemo(() => {
+    if (homeViewMode === "list") {
+      return playlists.slice(0, Math.max(6, targetCount));
+    }
     return playlists.slice(0, Math.max(1, targetCount - 1));
-  }, [playlists, targetCount]);
+  }, [playlists, targetCount, homeViewMode]);
 
   if (isScanning) {
     return (
@@ -602,45 +774,83 @@ export function HomeView() {
             </button>
           </div>
 
-          <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: `repeat(${targetCount}, minmax(0, 1fr))` }}
-          >
-            {visiblePlaylists.map((playlist) => (
-              <HomePlaylistCard
-                key={playlist.id}
-                playlist={playlist}
-                displayTracks={displayTracks}
-                onOpen={handleOpenPlaylist}
-                onPlay={handlePlayPlaylist}
-              />
-            ))}
-
-            {/* Create Playlist Quick Card (completes the row with identical proportions) */}
+          {homeViewMode === "grid" ? (
             <div
-              onClick={() => setShowCreatePlaylist(true)}
-              className="group relative bg-surface-raised/20 hover:bg-surface-raised/40 border-2 border-dashed border-border-subtle hover:border-accent/60 rounded-2xl p-3 flex flex-col gap-3 transition-colors duration-200 cursor-pointer shadow-sm select-none transform-gpu"
-              style={{
-                transform: "translateZ(0)",
-                backfaceVisibility: "hidden",
-              }}
-              title="Create a new playlist"
+              className="grid gap-4"
+              style={{ gridTemplateColumns: `repeat(${targetCount}, minmax(0, 1fr))` }}
             >
-              <div className="w-full aspect-square rounded-xl bg-surface-overlay/50 group-hover:bg-accent/10 flex items-center justify-center relative overflow-hidden flex-shrink-0 transition-colors">
-                <div className="w-11 h-11 rounded-full bg-surface-raised group-hover:bg-accent text-text-muted group-hover:text-black flex items-center justify-center transition-all duration-200 shadow-sm group-hover:scale-110">
-                  <Plus size={20} strokeWidth={2.5} />
+              {visiblePlaylists.map((playlist) => (
+                <HomePlaylistCard
+                  key={playlist.id}
+                  playlist={playlist}
+                  displayTracks={displayTracks}
+                  onOpen={handleOpenPlaylist}
+                  onPlay={handlePlayPlaylist}
+                  viewMode="grid"
+                />
+              ))}
+
+              {/* Create Playlist Quick Card (completes the row with identical proportions) */}
+              <div
+                onClick={() => setShowCreatePlaylist(true)}
+                className="group relative bg-surface-raised/20 hover:bg-surface-raised/40 border-2 border-dashed border-border-subtle hover:border-accent/60 rounded-2xl p-3 flex flex-col gap-3 transition-colors duration-200 cursor-pointer shadow-sm select-none transform-gpu"
+                style={{
+                  transform: "translateZ(0)",
+                  backfaceVisibility: "hidden",
+                }}
+                title="Create a new playlist"
+              >
+                <div className="w-full aspect-square rounded-xl bg-surface-overlay/50 group-hover:bg-accent/10 flex items-center justify-center relative overflow-hidden flex-shrink-0 transition-colors">
+                  <div className="w-11 h-11 rounded-full bg-surface-raised group-hover:bg-accent text-text-muted group-hover:text-black flex items-center justify-center transition-all duration-200 shadow-sm group-hover:scale-110">
+                    <Plus size={20} strokeWidth={2.5} />
+                  </div>
+                </div>
+                <div className="min-w-0 flex flex-col justify-between flex-1">
+                  <h3 className="font-bold text-xs text-text-muted group-hover:text-text-primary truncate transition-colors text-center">
+                    New Playlist
+                  </h3>
+                  <p className="text-[11px] text-text-muted/60 truncate text-center mt-0.5">
+                    Create a collection
+                  </p>
                 </div>
               </div>
-              <div className="min-w-0 flex flex-col justify-between flex-1">
-                <h3 className="font-bold text-xs text-text-muted group-hover:text-text-primary truncate transition-colors text-center">
-                  New Playlist
-                </h3>
-                <p className="text-[11px] text-text-muted/60 truncate text-center mt-0.5">
-                  Create a collection
-                </p>
+            </div>
+          ) : (
+            <div className="music-list gap-2">
+              {visiblePlaylists.map((playlist) => (
+                <HomePlaylistCard
+                  key={playlist.id}
+                  playlist={playlist}
+                  displayTracks={displayTracks}
+                  onOpen={handleOpenPlaylist}
+                  onPlay={handlePlayPlaylist}
+                  viewMode="list"
+                />
+              ))}
+
+              {/* New Playlist Row in List Mode */}
+              <div
+                onClick={() => setShowCreatePlaylist(true)}
+                className="group flex items-center gap-4 px-4 py-2.5 rounded-xl cursor-pointer border border-dashed border-border-subtle hover:border-accent/60 bg-surface-raised/20 hover:bg-surface-raised/40 transition-colors w-full"
+                title="Create a new playlist"
+              >
+                <div className="w-10 h-10 rounded-lg bg-surface-overlay/50 group-hover:bg-accent/10 flex items-center justify-center flex-shrink-0 text-text-muted group-hover:text-accent transition-colors">
+                  <Plus size={18} strokeWidth={2.5} />
+                </div>
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-sm font-semibold text-text-muted group-hover:text-text-primary transition-colors">
+                    New Playlist
+                  </span>
+                  <span className="text-xs text-text-muted/60 mt-0.5">
+                    Create a personal collection
+                  </span>
+                </div>
+                <div className="text-xs text-accent font-semibold group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                  Create <ArrowRight size={13} />
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </section>
       </div>
     </div>

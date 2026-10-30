@@ -144,6 +144,8 @@ interface UISlice {
   minecraftIntegrationEnabled: boolean;
   mewsifyIntegrationEnabled: boolean;
   sidebarCollapsed: boolean;
+  anonymousPresenceEnabled: boolean;
+  setAnonymousPresenceEnabled: (v: boolean) => void;
 
   setActiveView: (v: ViewId, skipHistory?: boolean) => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -664,6 +666,8 @@ export const useStore = create<Store>()(
       minecraftIntegrationEnabled: true,
       mewsifyIntegrationEnabled: false,
       sidebarCollapsed: false,
+      anonymousPresenceEnabled: true,
+      setAnonymousPresenceEnabled: (v: boolean) => set({ anonymousPresenceEnabled: v }),
 
       setActiveView: (v, skipHistory = false) => {
         const { history, historyIndex } = get();
@@ -727,8 +731,8 @@ export const useStore = create<Store>()(
       setTrayEnabled: (t) => set({ trayEnabled: t }),
       setRoundedCorners: (v) => set({ roundedCorners: v }),
       setCustomTitlebar: (v) => set({ customTitlebar: v }),
-      setFullscreen: (v) => set({ isFullscreen: v }),
-      setIsMaximized: (v) => set({ isMaximized: v }),
+      setFullscreen: (v) => set((s) => s.isFullscreen === v ? s : { isFullscreen: v }),
+      setIsMaximized: (v) => set((s) => s.isMaximized === v ? s : { isMaximized: v }),
       setDiscordEnabled: (v) => set({ discordEnabled: v }),
       setSystemNotifications: (v) => set({ systemNotifications: v }),
       setLowEndMode: (v) => set({ lowEndMode: v }),
