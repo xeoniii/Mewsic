@@ -7,8 +7,8 @@ import {
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "../../hooks/useLibrary";
-import type { ViewId } from "../../types";
-import { getCoverArtSync } from "../../utils/tauriApi";
+import type { ViewId, Playlist, Track } from "../../types";
+import { getCoverArt, getCoverArtSync } from "../../utils/tauriApi";
 
 interface NavItemProps {
   icon: ReactNode;
@@ -30,6 +30,50 @@ function NavItem({ icon, label, active, onClick }: NavItemProps) {
       <span className={`flex-1 text-left hidden truncate ${!sidebarCollapsed ? "md:block" : ""}`}>{label}</span>
     </button>
   );
+}
+
+function SidebarPlaylistCover({
+  playlist,
+  firstTrack,
+}: {
+  playlist: Playlist;
+  firstTrack?: Track | null;
+}) {
+  const [cover, setCover] = useState<string | null>(() => {
+    if (playlist.coverArt) return playlist.coverArt;
+    if (firstTrack?.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+      return firstTrack.coverArt;
+    }
+    return firstTrack ? getCoverArtSync(firstTrack.filePath, 64) : null;
+  });
+
+  useEffect(() => {
+    if (playlist.coverArt) {
+      setCover(playlist.coverArt);
+      return;
+    }
+    if (!firstTrack) {
+      setCover(null);
+      return;
+    }
+    if (firstTrack.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+      setCover(firstTrack.coverArt);
+      return;
+    }
+    let cancelled = false;
+    getCoverArt(firstTrack.filePath, 64).then((url) => {
+      if (!cancelled) setCover(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [playlist.coverArt, firstTrack]);
+
+  if (cover) {
+    return <img src={cover} alt="" className="w-full h-full object-cover" />;
+  }
+
+  return <ListMusic size={12} className="text-accent" />;
 }
 
 import { useDisplayData } from "../../hooks/useDisplayData";
@@ -92,7 +136,7 @@ export function Sidebar() {
   return (
     <>
       <aside
-        className={`flex flex-col h-full glass-heavy !border-y-0 !border-l-0 border-r border-border-glass z-50 !shadow-none w-[64px] min-w-[64px] flex-shrink-0 transition-[width] duration-300 ${!sidebarCollapsed ? "md:w-[224px] md:min-w-[224px]" : ""}`}
+        className={`flex flex-col h-full bg-surface-base !border-y-0 !border-l-0 border-r border-border-subtle z-50 !shadow-none w-[64px] min-w-[64px] flex-shrink-0 transition-[width] duration-300 ${!sidebarCollapsed ? "md:w-[224px] md:min-w-[224px]" : ""}`}
       >
         {
           // This is the logo
@@ -247,10 +291,9 @@ export function Sidebar() {
               </p>
             ) : (
               displayPlaylists.map((pl) => {
-                const firstTrackId = pl.trackIds[0];
-                const firstTrack = firstTrackId ? tracks.find((t) => t.id === firstTrackId) : null;
-                const fallbackCover = firstTrack ? getCoverArtSync(firstTrack.filePath, 64) : null;
-                const displayCover = pl.coverArt || fallbackCover;
+                const firstTrack = (pl.tracks && pl.tracks.length > 0)
+                  ? pl.tracks[0]
+                  : (pl.trackIds?.[0] ? tracks.find((t) => t.id === pl.trackIds[0]) : null);
 
                 return (
                   <button
@@ -263,11 +306,7 @@ export function Sidebar() {
                     data-context="playlist-item"
                   >
                     <div className="w-5 h-5 rounded-md bg-accent-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {displayCover ? (
-                        <img src={displayCover} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <ListMusic size={12} className="text-accent" />
-                      )}
+                      <SidebarPlaylistCover playlist={pl} firstTrack={firstTrack} />
                     </div>
                     <span className={`flex-1 text-left truncate text-sm hidden ${!sidebarCollapsed ? "md:block" : ""}`}>{pl.name}</span>
                     <ChevronRight

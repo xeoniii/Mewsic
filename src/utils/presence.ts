@@ -1,5 +1,5 @@
-// Mewsic Live Presence & Usage Tracker (5-minute Heartbeat)
-// Pings Cloudflare Worker to track active concurrent listening sessions.
+// Mewsic Live Presence & Active Listeners Tracker (5-minute Heartbeat)
+// Pings Cloudflare Worker when music is playing to track active concurrent listeners.
 
 const DEFAULT_PRESENCE_URL = "https://mewsic-presence.imrishan320.workers.dev";
 
@@ -19,86 +19,108 @@ class PresenceManager {
   private sessionId: string;
   private intervalId: number | null = null;
   private isEnabled: boolean = true;
+  private isListening: boolean = false;
+  private isActiveOnServer: boolean = false;
 
   constructor() {
     this.sessionId = crypto.randomUUID();
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", this.handleUnload);
+    }
+  }
+
+  /**
+   * Sync active listener state.
+   * Only active when anonymous telemetry is enabled, music is currently playing, and a track is loaded.
+   */
+  public updateStatus(enabled: boolean, isPlaying: boolean, hasTrack: boolean) {
+    this.isEnabled = enabled;
+    const shouldBeActive = enabled && isPlaying && hasTrack;
+
+    if (shouldBeActive && !this.isListening) {
+      this.startListening();
+    } else if (!shouldBeActive && this.isListening) {
+      this.stopListening();
+    }
   }
 
   public start(enabled: boolean = true) {
     this.isEnabled = enabled;
-    if (!this.isEnabled) return;
+  }
 
-    // Send initial launch ping
+  public stop() {
+    this.stopListening();
+  }
+
+  public setEnabled(enabled: boolean) {
+    this.isEnabled = enabled;
+    if (!enabled) {
+      this.stopListening();
+    }
+  }
+
+  private startListening() {
+    this.isListening = true;
+
+    // Send immediate ping when playback begins
     this.ping();
 
-    // Resend heartbeat every 5 minutes (300,000 ms)
+    // Heartbeat every 5 minutes while music continues playing
     if (this.intervalId === null) {
       this.intervalId = window.setInterval(() => {
-        if (this.isEnabled) {
+        if (this.isListening && this.isEnabled) {
           this.ping();
         }
       }, 5 * 60 * 1000);
     }
-
-    // Attach leave handler on window close / quit
-    window.addEventListener("beforeunload", this.handleUnload);
   }
 
-  public stop() {
+  private stopListening() {
+    this.isListening = false;
     if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
-    window.removeEventListener("beforeunload", this.handleUnload);
     this.leave();
   }
 
-  public setEnabled(enabled: boolean) {
-    if (this.isEnabled === enabled) return;
-    this.isEnabled = enabled;
-    if (enabled) {
-      this.start(true);
-    } else {
-      this.leave();
-      if (this.intervalId !== null) {
-        clearInterval(this.intervalId);
-        this.intervalId = null;
-      }
-    }
-  }
-
-  private ping() {
+  public async ping(): Promise<void> {
     const url = getPresenceUrl();
     if (!url) return;
 
-    fetch(`${url}/ping`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: this.sessionId }),
-    }).catch(() => {
-      // Fails silently when offline or server unreachable
-    });
+    try {
+      await fetch(`${url}/ping`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: this.sessionId }),
+      });
+      this.isActiveOnServer = true;
+    } catch {
+      // Fails silently when offline
+    }
   }
 
-  private leave() {
+  public async leave(): Promise<void> {
+    if (!this.isActiveOnServer) return;
     const url = getPresenceUrl();
     if (!url) return;
 
     try {
       const payload = JSON.stringify({ sessionId: this.sessionId });
-      if (navigator.sendBeacon) {
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
         const blob = new Blob([payload], { type: "application/json" });
         navigator.sendBeacon(`${url}/leave`, blob);
-      } else {
-        fetch(`${url}/leave`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true,
-        }).catch(() => { });
       }
+      await fetch(`${url}/leave`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
     } catch {
-      // Silent error handling
+      // Fails silently
+    } finally {
+      this.isActiveOnServer = false;
     }
   }
 

@@ -159,16 +159,16 @@ export function useLibrary() {
   const updatePlaylistData = useCallback(async (pl: Playlist) => {
     try {
       const hydratedTracks = pl.trackIds
-        .map((id) => tracks.find((t) => t.id === id))
+        .map((id) => tracks.find((t) => t.id === id) || (pl.tracks || []).find((t) => t.id === id))
         .filter((t): t is Track => !!t);
 
-      const playlistWithTracks = {
+      const playlistWithTracks: Playlist = {
         ...pl,
         tracks: hydratedTracks,
       };
 
       await savePlaylist(playlistWithTracks);
-      updatePlaylist(pl);
+      updatePlaylist(playlistWithTracks);
     } catch (err) {
       console.error("Save playlist error:", err);
     }

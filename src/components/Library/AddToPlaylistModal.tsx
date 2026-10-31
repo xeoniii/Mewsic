@@ -46,9 +46,12 @@ export function AddToPlaylistModal({ track, tracks, onClose }: AddToPlaylistModa
       return;
     }
 
+    const newTracks = tracksToAdd.filter((t: Track) => newTrackIds.includes(t.id));
+
     const updated = {
       ...playlist,
       trackIds: [...(playlist.trackIds || []), ...newTrackIds],
+      tracks: [...(playlist.tracks || []), ...newTracks],
     };
     updatePlaylist(updated);
     await updatePlaylistData(updated);

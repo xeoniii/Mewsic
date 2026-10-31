@@ -296,7 +296,7 @@ export function AudioView() {
       {
         // This is the header section
       }
-      <header className="p-4 md:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border-subtle bg-surface-base/50 backdrop-blur-md sticky top-0 z-10">
+      <header className="p-4 md:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border-subtle bg-surface-base sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <div className="min-w-0">
             <h1 className="text-xl md:text-2xl font-bold tracking-tight truncate">Mewsic Audio Engine</h1>

@@ -1,15 +1,124 @@
-import React, { useState, useCallback, useRef } from "react";
-import { X, Save, ImageIcon, Upload } from "lucide-react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
+import { X, Save, ImageIcon, Upload, Music } from "lucide-react";
 import { useLibrary } from "../../hooks/useLibrary";
-import type { Playlist } from "../../types";
-import { getCoverArtSync } from "../../utils/tauriApi";
+import { useStore } from "../../store";
+import type { Playlist, Track } from "../../types";
+import { getCoverArt, getCoverArtSync } from "../../utils/tauriApi";
 
 interface EditPlaylistModalProps {
   playlist: Playlist;
   onClose: () => void;
 }
 
+interface TrackCoverOptionProps {
+  track: Track;
+  isSelected: boolean;
+  onSelect: (dataUrl: string) => void;
+}
+
+function TrackCoverOption({ track, isSelected, onSelect }: TrackCoverOptionProps) {
+  const [coverUrl, setCoverUrl] = useState<string | null>(() => {
+    if (track.coverArt && (track.coverArt.startsWith("http") || track.coverArt.startsWith("data:"))) {
+      return track.coverArt;
+    }
+    return getCoverArtSync(track.filePath, 128);
+  });
+  const [loading, setLoading] = useState(!coverUrl);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!coverUrl) {
+      setLoading(true);
+      getCoverArt(track.filePath, 128)
+        .then((url) => {
+          if (!cancelled) {
+            setCoverUrl(url);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [track.filePath, coverUrl]);
+
+  const handleChoose = async () => {
+    let url = coverUrl;
+    if (!url) {
+      url = await getCoverArt(track.filePath, 300);
+    }
+    if (!url) return;
+
+    if (url.startsWith("data:")) {
+      onSelect(url);
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const MAX_SIZE = 300;
+        let width = img.width || MAX_SIZE;
+        let height = img.height || MAX_SIZE;
+        if (width > height && width > MAX_SIZE) {
+          height = (height * MAX_SIZE) / width;
+          width = MAX_SIZE;
+        } else if (height > MAX_SIZE) {
+          width = (width * MAX_SIZE) / height;
+          height = MAX_SIZE;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        onSelect(canvas.toDataURL("image/jpeg", 0.8));
+      } catch {
+        onSelect(url!);
+      }
+    };
+    img.onerror = () => {
+      onSelect(url!);
+    };
+    img.src = url;
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleChoose}
+      className={`w-11 h-11 rounded-xl bg-surface-overlay flex-shrink-0 overflow-hidden border transition-all hover:scale-105 active:scale-95 relative group flex items-center justify-center ${
+        isSelected ? "border-accent ring-2 ring-accent/50 shadow-md scale-105" : "border-border-subtle hover:border-accent"
+      }`}
+      title={`${track.title} - ${track.artist || "Unknown"}`}
+    >
+      {coverUrl ? (
+        <img
+          src={coverUrl}
+          alt={track.title}
+          className="w-full h-full object-cover pointer-events-none"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-surface-raised text-text-muted group-hover:text-accent">
+          {loading ? (
+            <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Music size={16} />
+          )}
+        </div>
+      )}
+    </button>
+  );
+}
+
 export function EditPlaylistModal({ playlist, onClose }: EditPlaylistModalProps) {
+  const allTracks = useStore((s) => s.tracks);
+  const livePlaylist = useStore((s) => s.playlists.find((p) => p.id === playlist.id)) || playlist;
   const { renamePlaylist, updatePlaylistData } = useLibrary();
   const [name, setName] = useState(playlist.name);
   const [coverArt, setCoverArt] = useState<string | null>(playlist.coverArt || null);
@@ -60,12 +169,12 @@ export function EditPlaylistModal({ playlist, onClose }: EditPlaylistModalProps)
     
     setSaving(true);
     try {
-      let activePlaylist = { ...playlist };
+      let activePlaylist = { ...livePlaylist };
       
-      if (name.trim() !== playlist.name) {
+      if (name.trim() !== livePlaylist.name) {
         // Name changed, use renamePlaylist which handles the file move
         // Capture the updated playlist object (with new name and filePath)
-        activePlaylist = await renamePlaylist(playlist, name.trim());
+        activePlaylist = await renamePlaylist(livePlaylist, name.trim());
       }
       
       // Update other metadata (coverArt) using the correctly-pathed playlist
@@ -80,7 +189,42 @@ export function EditPlaylistModal({ playlist, onClose }: EditPlaylistModalProps)
     } finally {
       setSaving(false);
     }
-  }, [playlist, name, coverArt, renamePlaylist, updatePlaylistData, onClose]);
+  }, [livePlaylist, name, coverArt, renamePlaylist, updatePlaylistData, onClose]);
+
+  // Dynamically resolve tracks from live playlist and store tracks
+  const tracksList = React.useMemo(() => {
+    const existing = livePlaylist.tracks || [];
+    const idSet = new Set(existing.map((t) => t.id));
+    const fromLibrary = (livePlaylist.trackIds || [])
+      .filter((id) => !idSet.has(id))
+      .map((id) => allTracks.find((t) => t.id === id))
+      .filter((t): t is Track => !!t);
+
+    return [...existing, ...fromLibrary].slice(0, 30);
+  }, [livePlaylist.tracks, livePlaylist.trackIds, allTracks]);
+
+  const [firstTrackCover, setFirstTrackCover] = useState<string | null>(null);
+  useEffect(() => {
+    if (coverArt) return;
+    const firstTrack = tracksList[0];
+    if (!firstTrack) {
+      setFirstTrackCover(null);
+      return;
+    }
+    if (firstTrack.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+      setFirstTrackCover(firstTrack.coverArt);
+      return;
+    }
+    let cancelled = false;
+    getCoverArt(firstTrack.filePath, 256).then((url) => {
+      if (!cancelled && url) setFirstTrackCover(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [coverArt, tracksList]);
+
+  const previewCover = coverArt || firstTrackCover;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -98,8 +242,8 @@ export function EditPlaylistModal({ playlist, onClose }: EditPlaylistModalProps)
                     className="w-32 h-32 rounded-2xl bg-surface-overlay border-2 border-dashed border-border-subtle flex items-center justify-center overflow-hidden cursor-pointer hover:border-accent group transition-all relative"
                     onClick={() => fileInputRef.current?.click()}
                 >
-                    {coverArt ? (
-                        <img src={coverArt} alt="Playlist cover" className="w-full h-full object-cover" />
+                    {previewCover ? (
+                        <img src={previewCover} alt="Playlist cover" className="w-full h-full object-cover" />
                     ) : (
                         <div className="flex flex-col items-center gap-2 text-text-muted group-hover:text-accent">
                             <ImageIcon size={32} />
@@ -118,33 +262,17 @@ export function EditPlaylistModal({ playlist, onClose }: EditPlaylistModalProps)
                     onChange={handleFileChange}
                 />
                 <p className="text-[10px] text-text-muted uppercase tracking-widest font-medium">Recommended: 512x512 PNG/JPG</p>
-                {playlist.tracks && playlist.tracks.length > 0 && (
+                {tracksList.length > 0 && (
                   <div className="w-full flex flex-col items-center gap-2 mt-2">
                     <p className="text-[10px] text-text-muted uppercase tracking-widest font-medium">Or choose from playlist tracks:</p>
-                    <div className="flex items-center justify-center gap-2 flex-wrap w-full max-h-[80px] overflow-y-auto overflow-x-hidden scrollbar-thin">
-                      {playlist.tracks.map((track) => (
-                        <button
+                    <div className="flex items-center justify-center gap-2.5 flex-wrap w-full max-h-[110px] p-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
+                      {tracksList.map((track) => (
+                        <TrackCoverOption
                           key={track.id}
-                          className="w-10 h-10 rounded-lg bg-surface-overlay flex-shrink-0 overflow-hidden border border-border-subtle hover:border-accent transition-colors focus:outline-none focus:border-accent"
-                          onClick={() => {
-                            const url = getCoverArtSync(track.filePath, 256);
-                            if (url) {
-                              const img = new Image();
-                              img.crossOrigin = "anonymous";
-                              img.onload = () => {
-                                const canvas = document.createElement("canvas");
-                                canvas.width = 300;
-                                canvas.height = 300;
-                                const ctx = canvas.getContext("2d");
-                                ctx?.drawImage(img, 0, 0, 300, 300);
-                                setCoverArt(canvas.toDataURL("image/jpeg", 0.8));
-                              };
-                              img.src = url;
-                            }
-                          }}
-                        >
-                          <img src={getCoverArtSync(track.filePath, 64) || undefined} alt="Track cover" className="w-full h-full object-cover" loading="lazy" />
-                        </button>
+                          track={track}
+                          isSelected={coverArt !== null && (track.coverArt === coverArt)}
+                          onSelect={(newCover) => setCoverArt(newCover)}
+                        />
                       ))}
                     </div>
                   </div>

@@ -178,6 +178,9 @@ export function initAudioContext() {
     pannerNode = audioCtx.createPanner();
     pannerNode.panningModel = 'HRTF';
     pannerNode.distanceModel = 'inverse';
+    pannerNode.refDistance = 2.0;
+    pannerNode.maxDistance = 10;
+    pannerNode.rolloffFactor = 0.15; // Low rolloff preserves balanced loudness across all pan angles
 
     const listener = audioCtx.listener;
     if (listener.positionX) {
@@ -280,19 +283,17 @@ export function setSpatialPan(x: number, y: number) {
   currentPanY = y;
   if (!pannerNode || !audioCtx || currentPanAuto) return;
 
-  const radius = 10;
+  // Intimate, uniform 2.0m radius so sound stays rich, audible, and uniform in all directions
+  const radius = 2.0;
   const posX = x * radius;
-  const posY = 0;
+  const posY = 0.2; // Slight natural ear-level elevation for open HRTF response
   const posZ = -y * radius;
 
   if (pannerNode.positionX) {
     const t = audioCtx.currentTime;
-    pannerNode.positionX.cancelScheduledValues(t);
-    pannerNode.positionX.setTargetAtTime(posX, t, 0.1);
-    pannerNode.positionY.cancelScheduledValues(t);
-    pannerNode.positionY.setTargetAtTime(posY, t, 0.1);
-    pannerNode.positionZ.cancelScheduledValues(t);
-    pannerNode.positionZ.setTargetAtTime(posZ, t, 0.1);
+    pannerNode.positionX.setTargetAtTime(posX, t, 0.03);
+    pannerNode.positionY.setTargetAtTime(posY, t, 0.03);
+    pannerNode.positionZ.setTargetAtTime(posZ, t, 0.03);
   } else {
     pannerNode.setPosition(posX, posY, posZ);
   }
@@ -306,28 +307,24 @@ export function setPanAuto(enabled: boolean) {
     if (autoPanInterval) clearInterval(autoPanInterval);
     autoPanAngle = 0;
     autoPanInterval = setInterval(() => {
-      autoPanAngle += 0.04; // Synchronized orbit speed (7.85s)
+      autoPanAngle += 0.03; // Smooth synchronized orbit speed
       
-      // Use an elliptical orbit instead of a perfect circle.
-      // Standard HRTF often causes the "Cone of Confusion" on the pure Z axis,
-      // making front/back sound like top/bottom (elevation).
-      // Squashing the Z radius keeps it wider on the ears and reduces the illusion.
-      const radiusX = 4.5;
-      const radiusZ = 2.0; 
-      
-      const posX = Math.cos(autoPanAngle) * radiusX;
-      const posZ = Math.sin(autoPanAngle) * radiusZ;
+      const radius = 2.0;
+      const posX = Math.cos(autoPanAngle) * radius;
+      const posY = 0.2;
+      const posZ = Math.sin(autoPanAngle) * radius;
 
       if (pannerNode && audioCtx) {
         const t = audioCtx.currentTime;
         if (pannerNode.positionX) {
-          pannerNode.positionX.setTargetAtTime(posX, t, 0.05);
-          pannerNode.positionZ.setTargetAtTime(posZ, t, 0.05);
+          pannerNode.positionX.setTargetAtTime(posX, t, 0.03);
+          pannerNode.positionY.setTargetAtTime(posY, t, 0.03);
+          pannerNode.positionZ.setTargetAtTime(posZ, t, 0.03);
         } else {
-          pannerNode.setPosition(posX, 0, posZ);
+          pannerNode.setPosition(posX, posY, posZ);
         }
       }
-    }, 50); // 20fps is enough with setTargetAtTime smoothing
+    }, 25); // 40fps smooth audio trajectory update
   } else {
     if (autoPanInterval) {
       clearInterval(autoPanInterval);

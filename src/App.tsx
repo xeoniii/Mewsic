@@ -263,12 +263,14 @@ export default function App() {
     document.documentElement.dataset.fullscreen = isFullscreen.toString();
   }, [isFullscreen]);
 
-  // Live Presence 5-minute heartbeat tracking
+  // Live Presence 5-minute heartbeat tracking (active listeners only while playing)
+  const isPlaying = useStore((s) => s.isPlaying);
+  const currentTrack = useStore((s) => s.currentTrack);
   const anonymousPresenceEnabled = useStore((s) => s.anonymousPresenceEnabled);
   useEffect(() => {
-    presence.start(anonymousPresenceEnabled);
+    presence.updateStatus(anonymousPresenceEnabled, isPlaying, !!currentTrack);
     return () => presence.stop();
-  }, [anonymousPresenceEnabled]);
+  }, [anonymousPresenceEnabled, isPlaying, currentTrack]);
 
   useEffect(() => {
     async function bootstrap() {

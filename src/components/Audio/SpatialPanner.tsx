@@ -9,35 +9,109 @@ interface SpatialPannerProps {
   onToggleAuto: (enabled: boolean) => void;
 }
 
+function EditablePercent({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (val: number) => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [text, setText] = useState("");
+
+  const handleStartEdit = () => {
+    setText(Math.round(value).toString());
+    setIsEditing(true);
+  };
+
+  const handleCommit = () => {
+    setIsEditing(false);
+    const parsed = parseInt(text, 10);
+    if (!isNaN(parsed)) {
+      const clamped = Math.max(-100, Math.min(100, parsed));
+      onChange(clamped);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleCommit();
+    } else if (e.key === "Escape") {
+      setIsEditing(false);
+    }
+  };
+
+  return (
+    <div className="text-center flex flex-col items-center">
+      <p className="text-[9px] font-black uppercase tracking-widest text-text-muted">{label}</p>
+      {isEditing ? (
+        <div className="flex items-center justify-center h-5">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={handleCommit}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            className="w-10 text-center text-xs font-mono font-bold text-accent bg-surface-overlay border border-accent/60 rounded px-1 outline-none"
+          />
+          <span className="text-xs font-mono font-bold text-accent ml-0.5">%</span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={handleStartEdit}
+          className="text-xs font-mono font-bold text-accent hover:bg-white/10 hover:border-accent/40 border border-transparent px-1.5 py-0.5 rounded transition-all cursor-text h-5 flex items-center justify-center"
+          title={`Click to manually type ${label}`}
+        >
+          {Math.round(value)}%
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: SpatialPannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const rafRef = useRef<number | null>(null);
+
   const handleInteract = (clientX: number, clientY: number) => {
     if (autoPan) onToggleAuto(false);
     if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    
-    // Calculate relative position (-1 to 1)
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const relX = (clientX - rect.left - centerX) / centerX;
-    const relY = (clientY - rect.top - centerY) / centerY;
 
-    // Constrain to circle
-    const distance = Math.sqrt(relX * relX + relY * relY);
-    let finalX = relX;
-    let finalY = relY;
-
-    if (distance > 1) {
-      finalX = relX / distance;
-      finalY = relY / distance;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
     }
 
-    onChange(
-      Math.max(-1, Math.min(1, finalX)),
-      Math.max(-1, Math.min(1, finalY))
-    );
+    rafRef.current = requestAnimationFrame(() => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      
+      // Calculate relative position (-1 to 1)
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const relX = (clientX - rect.left - centerX) / centerX;
+      const relY = (clientY - rect.top - centerY) / centerY;
+
+      // Constrain to circle
+      const distance = Math.sqrt(relX * relX + relY * relY);
+      let finalX = relX;
+      let finalY = relY;
+
+      if (distance > 1) {
+        finalX = relX / distance;
+        finalY = relY / distance;
+      }
+
+      onChange(
+        Math.max(-1, Math.min(1, finalX)),
+        Math.max(-1, Math.min(1, finalY))
+      );
+    });
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -53,18 +127,48 @@ export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: Spatial
 
   const handlePointerUp = (e: React.PointerEvent) => {
     setIsDragging(false);
-    e.currentTarget.releasePointerCapture(e.pointerId);
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
   };
 
   // Convert -1..1 to 0..100% for CSS positioning
   const leftPos = `${((x + 1) / 2) * 100}%`;
   const topPos = `${((y + 1) / 2) * 100}%`;
 
+  const handleUpdatePan = (panVal: number) => {
+    if (autoPan) onToggleAuto(false);
+    let newX = panVal / 100;
+    let newY = y;
+    const dist = Math.sqrt(newX * newX + newY * newY);
+    if (dist > 1) {
+      newX /= dist;
+      newY /= dist;
+    }
+    onChange(newX, newY);
+  };
+
+  const handleUpdateDepth = (depthVal: number) => {
+    if (autoPan) onToggleAuto(false);
+    let newX = x;
+    let newY = -depthVal / 100;
+    const dist = Math.sqrt(newX * newX + newY * newY);
+    if (dist > 1) {
+      newX /= dist;
+      newY /= dist;
+    }
+    onChange(newX, newY);
+  };
+
   return (
     <div className="flex flex-col items-center w-full">
       <div 
         ref={containerRef}
-        className="relative w-40 h-40 rounded-full border-2 border-white/5 bg-white/[0.02] cursor-crosshair touch-none shadow-inner flex items-center justify-center group"
+        className="relative w-40 h-40 rounded-full border-2 border-white/5 bg-white/[0.02] cursor-crosshair touch-none shadow-inner flex items-center justify-center group select-none"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -94,7 +198,9 @@ export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: Spatial
   // This is the the puck part
 }
           <div 
-            className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-accent shadow-[0_0_15px_rgba(var(--color-accent),0.5)] border-2 border-white transition-all duration-300"
+            className={`absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-accent shadow-[0_0_15px_rgba(var(--color-accent),0.5)] border-2 border-white will-change-[left,top,transform] ${
+              isDragging ? 'transition-[transform] duration-100 ease-out' : 'transition-all duration-200 ease-out'
+            }`}
             style={
               autoPan 
                 ? { left: '72.5%', top: '50%' }
@@ -104,7 +210,7 @@ export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: Spatial
             {
   // This is the inner glow part
 }
-            <div className="absolute inset-0 rounded-full bg-white/50 blur-sm" />
+            <div className="absolute inset-0 rounded-full bg-white/50 blur-sm pointer-events-none" />
           </div>
         </div>
       </div>
@@ -114,14 +220,16 @@ export function SpatialPanner({ x, y, autoPan, onChange, onToggleAuto }: Spatial
 }
       <div className="flex items-center justify-between w-full mt-6 px-4">
         <div className="flex gap-4">
-          <div className="text-center">
-            <p className="text-[9px] font-black uppercase tracking-widest text-text-muted">Pan L/R</p>
-            <p className="text-xs font-mono font-bold text-accent">{(x * 100).toFixed(0)}%</p>
-          </div>
-          <div className="text-center">
-            <p className="text-[9px] font-black uppercase tracking-widest text-text-muted">Depth</p>
-            <p className="text-xs font-mono font-bold text-accent">{(-y * 100).toFixed(0)}%</p>
-          </div>
+          <EditablePercent
+            label="Pan L/R"
+            value={x * 100}
+            onChange={handleUpdatePan}
+          />
+          <EditablePercent
+            label="Depth"
+            value={-y * 100}
+            onChange={handleUpdateDepth}
+          />
         </div>
         <div className="flex gap-2">
           <button

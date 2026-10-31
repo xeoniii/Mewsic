@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef, memo } from "react";
 import {
-  Play, Shuffle, Trash2, Music2, ListMusic, PlusCircle, Pencil, Share2, Download, List, LayoutGrid, Plus
+  Play, Pause, Shuffle, Trash2, Music2, ListMusic, PlusCircle, Pencil, Share2, Download, List, LayoutGrid, Plus
 } from "lucide-react";
 import {
   DndContext,
@@ -48,6 +48,11 @@ const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
   const [coverUrl, setCoverUrl] = useState<string | null>(playlist.coverArt || null);
   const [imgError, setImgError] = useState(false);
   const lowEndMode = useStore((s) => s.lowEndMode);
+  const isPlaying = useStore((s) => s.isPlaying);
+  const queueSourceId = useStore((s) => s.queueSourceId);
+
+  const isThisActive = queueSourceId === playlist.id;
+  const isThisPlaying = isThisActive && isPlaying;
 
   const playlistTracks = useMemo(() => {
     const trackMap = new Map(displayTracks.map((t) => [t.id, t]));
@@ -56,11 +61,6 @@ const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
       .map((id) => trackMap.get(id) || embeddedMap.get(id))
       .filter(Boolean) as Track[];
   }, [playlist, displayTracks]);
-
-  const totalDuration = useMemo(
-    () => playlistTracks.reduce((acc, t) => acc + t.duration, 0),
-    [playlistTracks]
-  );
 
   const firstTrack = playlistTracks[0];
 
@@ -83,59 +83,72 @@ const PlaylistOverviewCard = memo(function PlaylistOverviewCard({
         }
       });
       return () => { cancelled = true; };
+    } else {
+      setCoverUrl(null);
     }
   }, [playlist.coverArt, firstTrack, lowEndMode]);
 
   return (
     <div
       onClick={() => onOpen(playlist.id)}
-      className="music-card group cursor-pointer flex flex-col h-full"
+      className={`group relative rounded-2xl p-3 flex flex-col gap-3 cursor-pointer select-none border transition-colors duration-200 transform-gpu ${isThisActive
+          ? "bg-surface-raised border-accent shadow-md shadow-accent/5"
+          : "bg-surface-raised/40 hover:bg-surface-raised border-border-subtle hover:border-accent/40 shadow-sm hover:shadow-md"
+        }`}
+      style={{
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden",
+      }}
     >
-      <div className="relative aspect-square overflow-hidden bg-surface-raised rounded-xl">
+      <div className="w-full aspect-square rounded-xl bg-surface-overlay flex items-center justify-center relative overflow-hidden flex-shrink-0">
         {coverUrl && !imgError ? (
           <img
             src={coverUrl}
             alt={playlist.name}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={() => setImgError(true)}
+            className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
             draggable={false}
+            onError={() => setImgError(true)}
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-surface-overlay text-text-muted group-hover:text-accent transition-colors">
-            <ListMusic size={44} strokeWidth={1.5} />
+          <div className="w-full h-full flex flex-col items-center justify-center text-text-muted bg-surface-raised/50 gap-1 group-hover:bg-accent/10 transition-colors">
+            <ListMusic size={32} className="text-accent/60 group-hover:text-accent transition-colors" />
           </div>
         )}
 
-        {/* Hover play button */}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {/* Hover / Active Play Button Overlay */}
+        <div
+          className={`absolute inset-0 bg-black/40 transition-opacity duration-200 flex items-center justify-center ${isThisPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+        >
           <button
             onClick={(e) => {
               e.stopPropagation();
               onPlay(playlist, playlistTracks);
             }}
-            className="w-11 h-11 rounded-full bg-accent flex items-center justify-center shadow-accent hover:scale-110 active:scale-95 transition-all"
+            className="w-11 h-11 rounded-full bg-accent text-black flex items-center justify-center shadow-accent scale-95 group-hover:scale-100 active:scale-90 transition-transform duration-150 hover:brightness-110"
             style={{ boxShadow: "0 0 24px var(--accent-glow)" }}
-            title={`Play ${playlist.name}`}
+            title={isThisPlaying ? `Pause ${playlist.name}` : `Play ${playlist.name}`}
           >
-            <Play size={18} fill="#000" color="#000" style={{ marginLeft: 2 }} />
+            {isThisPlaying ? (
+              <Pause size={18} fill="currentColor" />
+            ) : (
+              <Play size={18} fill="currentColor" className="ml-0.5" />
+            )}
           </button>
         </div>
       </div>
 
-      <div className="p-3 flex flex-col min-w-0 flex-1 justify-between gap-1">
-        <div>
-          <p className="font-semibold text-sm leading-snug truncate text-text-primary group-hover:text-accent transition-colors" title={playlist.name}>
-            {playlist.name}
-          </p>
-          <p className="text-xs text-text-secondary truncate mt-0.5">
-            {pluralize(playlistTracks.length, "track")}
-            {playlistTracks.length > 0 && ` · ${formatDuration(totalDuration)}`}
-          </p>
-        </div>
-        <div className="flex items-center justify-between pt-1 border-t border-border-subtle/50 text-[10px] text-text-muted font-mono">
-          <span>{playlist.createdAt ? new Date(playlist.createdAt).toLocaleDateString() : "Playlist"}</span>
-          <span className="text-accent group-hover:translate-x-0.5 transition-transform font-bold">Open →</span>
-        </div>
+      <div className="min-w-0 flex flex-col justify-between flex-1">
+        <h3
+          className={`font-bold text-xs truncate transition-colors ${isThisActive ? "text-accent" : "text-text-primary group-hover:text-accent"
+            }`}
+          title={playlist.name}
+        >
+          {playlist.name}
+        </h3>
+        <p className="text-[11px] text-text-muted truncate mt-0.5">
+          {playlistTracks.length} tracks
+        </p>
       </div>
     </div>
   );
@@ -158,11 +171,16 @@ export function PlaylistView() {
     setActivePlaylist,
     setShowCreatePlaylist,
     setShowImportPlaylist,
+    lowEndMode,
+    isPlaying,
+    queueSourceId,
   } = useStore(
     useShallow((s) => ({
       activePlaylistId: s.activePlaylistId,
       setQueue: s.setQueue,
       setIsPlaying: s.setIsPlaying,
+      isPlaying: s.isPlaying,
+      queueSourceId: s.queueSourceId,
       setActiveView: s.setActiveView,
       setAddTrack: s.setAddTrack,
       playlistViewMode: s.playlistViewMode,
@@ -175,14 +193,15 @@ export function PlaylistView() {
       setActivePlaylist: s.setActivePlaylist,
       setShowCreatePlaylist: s.setShowCreatePlaylist,
       setShowImportPlaylist: s.setShowImportPlaylist,
+      lowEndMode: s.lowEndMode,
     }))
   );
 
   const { displayPlaylists, displayTracks } = useDisplayData();
-  const { 
-    removePlaylistData, 
-    removeTrackFromPlaylist, 
-    updatePlaylistData, 
+  const {
+    removePlaylistData,
+    removeTrackFromPlaylist,
+    updatePlaylistData,
     rehydratePlaylist
   } = useLibrary();
 
@@ -217,7 +236,7 @@ export function PlaylistView() {
       if (containerRef.current) {
         containerRef.current.scrollTop = saved;
       }
-      
+
       if (attempts < 5) {
         attempts++;
         frame = requestAnimationFrame(tryRestore);
@@ -270,7 +289,7 @@ export function PlaylistView() {
 
   const handleShuffle = useCallback(async () => {
     if (!playlist || !playlistTracks.length) return;
-    
+
     const shuffledTracks = shuffleArray([...playlistTracks]);
     const shuffledIds = shuffledTracks.map((t) => t.id);
 
@@ -335,7 +354,7 @@ export function PlaylistView() {
   useEffect(() => {
     if (!isVirtualPlaylist || !musicDir) return;
     if (currentCachePlaylistIdRef.current === activePlaylistId) return;
-    
+
     const uncachedTracks = playlistTracks.filter(t => t.filePath.startsWith("ytsearch:"));
     if (uncachedTracks.length === 0) return;
 
@@ -345,7 +364,7 @@ export function PlaylistView() {
     const cacheTracks = async () => {
       const CONCURRENCY = 3;
       let i = 0;
-      
+
       const processNext = async (): Promise<void> => {
         if (currentCachePlaylistIdRef.current !== activePlaylistId) return;
         if (i >= uncachedTracks.length) return;
@@ -354,7 +373,7 @@ export function PlaylistView() {
           const cachedPath = await downloadTrack(
             cacheDir, track.title, track.artist, track.album || playlist!.name, track.coverArt || playlist!.coverArt || "", `cache_${track.id}`, undefined
           );
-          
+
           if (currentCachePlaylistIdRef.current !== activePlaylistId) return;
           useStore.getState().updateTrack({
             ...track,
@@ -376,7 +395,7 @@ export function PlaylistView() {
   const handleSaveVirtual = async () => {
     if (!playlist || !musicDir) return;
     const notifId = addNotification(`Saving ${playlistTracks.length} tracks to disk...`, "info", 0, true);
-    
+
     let unlisten: any = null;
     try {
       unlisten = await listen("download-progress", (e: any) => {
@@ -389,16 +408,16 @@ export function PlaylistView() {
       const finalTracksToLibrary: Track[] = [];
       const succeededIds = new Set<string>();
       const trackIdMap = new Map<string, string>();
-      
+
       for (let i = 0; i < playlistTracks.length; i++) {
         const t = playlistTracks[i];
-        updateNotification(notifId, { message: `Processing (${i+1}/${playlistTracks.length}): ${t.title}...`, loading: true });
-        
+        updateNotification(notifId, { message: `Processing (${i + 1}/${playlistTracks.length}): ${t.title}...`, loading: true });
+
         let finalPath = "";
         try {
           // Check if there is already a scanned track with the same title and artist in the library
-          const existingTrack = useStore.getState().tracks.find(st => 
-            !st.isVirtual && 
+          const existingTrack = useStore.getState().tracks.find(st =>
+            !st.isVirtual &&
             !st.filePath.startsWith("ytsearch:") &&
             st.title.toLowerCase().trim() === t.title.toLowerCase().trim() &&
             st.artist.toLowerCase().trim() === t.artist.toLowerCase().trim()
@@ -420,7 +439,7 @@ export function PlaylistView() {
               musicDir, t.title, t.artist, t.album || playlist!.name, t.coverArt || playlist!.coverArt || "", `virt_dl_${i}`, undefined
             );
           }
-          
+
           if (finalPath) {
             const newTrackId = "mewsify_" + (t.sourceId || finalPath).replace(/[^a-z0-9]/gi, "_");
             const realTrack: Track = {
@@ -446,14 +465,14 @@ export function PlaylistView() {
         if (finalTracksToLibrary.length > 0) {
           useStore.getState().addTracks(finalTracksToLibrary);
         }
-        
+
         // Clean up the old virtual tracks from the library if they succeeded
         for (const t of playlistTracks) {
           if (succeededIds.has(t.id)) {
             useStore.getState().removeVirtualTrack(t.id);
           }
         }
-        
+
         const cleanName = playlist!.name.replace(" (Virtual)", "");
         const newPl = {
           ...playlist!,
@@ -465,10 +484,10 @@ export function PlaylistView() {
             return t.id;
           }),
         };
-        
+
         // Remove the virtual suffix and save to disk
         await rehydratePlaylist(newPl);
-        
+
         updateNotification(notifId, { message: `Saved playlist to library!`, type: "success", loading: false });
       } else {
         updateNotification(notifId, { message: "Failed to save tracks.", type: "error", loading: false });
@@ -484,26 +503,47 @@ export function PlaylistView() {
   const theme = useStore((s) => s.theme);
   const isLight = theme === "light";
 
-  const headerCoverUrl = useMemo(() => {
+  const [headerCover, setHeaderCover] = useState<string | null>(() => {
     if (!playlist) return null;
     if (playlist.coverArt) return playlist.coverArt;
-    if (playlistTracks.length > 0) {
-      const firstTrack = playlistTracks[0];
-      if (firstTrack.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
-        return firstTrack.coverArt;
-      }
-      return getCoverArtSync(firstTrack.filePath, 256) || firstTrack.coverArt || null;
+    const firstTrack = playlistTracks[0];
+    if (firstTrack?.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+      return firstTrack.coverArt;
     }
-    return null;
-  }, [playlist, playlistTracks]);
-
+    return firstTrack ? getCoverArtSync(firstTrack.filePath, 256) : null;
+  });
   const [headerImgError, setHeaderImgError] = useState(false);
 
   useEffect(() => {
     setHeaderImgError(false);
-  }, [headerCoverUrl]);
+    if (!playlist) {
+      setHeaderCover(null);
+      return;
+    }
+    if (playlist.coverArt) {
+      setHeaderCover(playlist.coverArt);
+      return;
+    }
+    if (playlistTracks.length > 0) {
+      const firstTrack = playlistTracks[0];
+      if (firstTrack.coverArt && (firstTrack.coverArt.startsWith("http") || firstTrack.coverArt.startsWith("data:"))) {
+        setHeaderCover(firstTrack.coverArt);
+        return;
+      }
+      let cancelled = false;
+      getCoverArt(firstTrack.filePath, 300, lowEndMode).then((url) => {
+        if (!cancelled && url) {
+          setHeaderCover(url);
+          setHeaderImgError(false);
+        }
+      });
+      return () => { cancelled = true; };
+    } else {
+      setHeaderCover(null);
+    }
+  }, [playlist?.coverArt, playlistTracks, lowEndMode]);
 
-  const extractedColors = useExtractedColors(!headerImgError ? headerCoverUrl : null);
+  const extractedColors = useExtractedColors(!headerImgError ? headerCover : null);
 
   if (!playlist) {
     return (
@@ -511,12 +551,6 @@ export function PlaylistView() {
         {/* Playlists Directory Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-xl bg-accent-muted flex items-center justify-center text-accent flex-shrink-0"
-              style={{ boxShadow: "0 0 20px var(--accent-glow)" }}
-            >
-              <ListMusic size={22} />
-            </div>
             <div>
               <h2 className="font-display font-black text-2xl md:text-3xl tracking-tight text-text-primary leading-tight">
                 Playlists
@@ -582,7 +616,7 @@ export function PlaylistView() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
             {displayPlaylists.map((pl) => (
               <PlaylistOverviewCard
                 key={pl.id}
@@ -591,11 +625,40 @@ export function PlaylistView() {
                 onOpen={(id) => setActivePlaylist(id)}
                 onPlay={(targetPl, tracksToPlay) => {
                   if (!tracksToPlay.length) return;
+                  if (queueSourceId === targetPl.id) {
+                    setIsPlaying(!isPlaying);
+                    return;
+                  }
                   setQueue(tracksToPlay, 0, targetPl.id);
                   setIsPlaying(true);
                 }}
               />
             ))}
+
+            {/* Create Playlist Quick Card (identical to Home page) */}
+            <div
+              onClick={() => setShowCreatePlaylist(true)}
+              className="group relative bg-surface-raised/20 hover:bg-surface-raised/40 border-2 border-dashed border-border-subtle hover:border-accent/60 rounded-2xl p-3 flex flex-col gap-3 transition-colors duration-200 cursor-pointer shadow-sm select-none transform-gpu"
+              style={{
+                transform: "translateZ(0)",
+                backfaceVisibility: "hidden",
+              }}
+              title="Create a new playlist"
+            >
+              <div className="w-full aspect-square rounded-xl bg-surface-overlay/50 group-hover:bg-accent/10 flex items-center justify-center relative overflow-hidden flex-shrink-0 transition-colors">
+                <div className="w-11 h-11 rounded-full bg-surface-raised group-hover:bg-accent text-text-muted group-hover:text-black flex items-center justify-center transition-all duration-200 shadow-sm group-hover:scale-110">
+                  <Plus size={20} strokeWidth={2.5} />
+                </div>
+              </div>
+              <div className="min-w-0 flex flex-col justify-between flex-1">
+                <h3 className="font-bold text-xs text-text-muted group-hover:text-text-primary truncate transition-colors text-center">
+                  New Playlist
+                </h3>
+                <p className="text-[11px] text-text-muted/60 truncate text-center mt-0.5">
+                  Create a collection
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -605,8 +668,8 @@ export function PlaylistView() {
   return (
     <div className="flex flex-col h-full">
       {
-  // This is the header section
-}
+        // This is the header section
+      }
       <div className="relative px-6 py-6 border-b border-border-subtle flex-shrink-0 overflow-hidden">
         {/* Thick, lush blurred gradient wave across the whole playlist panel */}
         <svg
@@ -700,9 +763,9 @@ export function PlaylistView() {
                   : undefined,
               }}
             >
-              {headerCoverUrl && !headerImgError ? (
+              {headerCover && !headerImgError ? (
                 <img
-                  src={headerCoverUrl}
+                  src={headerCover}
                   alt="Playlist cover"
                   className="w-full h-full object-cover"
                   onError={() => setHeaderImgError(true)}
@@ -727,8 +790,8 @@ export function PlaylistView() {
           </div>
 
           {
-  // This is the actions part
-}
+            // This is the actions part
+          }
           <div className="flex flex-wrap items-center gap-3 lg:justify-end mt-2 lg:mt-0 w-full lg:w-auto">
             <div className="flex gap-2">
               <button
@@ -763,8 +826,8 @@ export function PlaylistView() {
             <div className="flex flex-1 justify-end min-w-max">
               <div className="flex items-center gap-1 bg-surface-raised border border-border-subtle p-1 rounded-xl">
                 {
-  // This is the view toggle part
-}
+                  // This is the view toggle part
+                }
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setPlaylistViewMode("list")}
@@ -822,23 +885,39 @@ export function PlaylistView() {
       </div>
 
       {
-  // This is the track list part
-}
-      <div 
+        // This is the track list part
+      }
+      <div
         ref={containerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-6 py-4"
       >
         {playlistTracks.length === 0 ? (
-          <div className="empty-state pt-16">
-            <Music2 size={40} className="text-text-muted" />
-            <div className="text-center">
-              <p className="text-text-secondary font-medium">
-                This playlist is empty
-              </p>
-              <p className="text-text-muted text-sm mt-1">
-                Add tracks from the Library view
-              </p>
+          <div className="empty-state pt-16 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-2xl bg-surface-overlay border border-border-subtle flex items-center justify-center text-accent mb-4 shadow-sm">
+              <ListMusic size={32} />
+            </div>
+            <p className="text-text-primary font-semibold text-base">
+              This playlist is empty
+            </p>
+            <p className="text-text-muted text-xs mt-1 max-w-xs">
+              Add tracks from your music library or import files directly into this playlist.
+            </p>
+            <div className="flex items-center gap-2.5 mt-5">
+              <button
+                onClick={() => setActiveView("library")}
+                className="btn-accent px-4 py-2 text-xs font-semibold"
+              >
+                <Music2 size={14} />
+                Browse Library
+              </button>
+              <button
+                onClick={() => setShowManageTracks(true)}
+                className="btn-accent bg-surface-raised border border-border-subtle text-text-secondary hover:text-text-primary px-4 py-2 text-xs font-semibold"
+              >
+                <Plus size={14} />
+                Add Tracks
+              </button>
             </div>
           </div>
         ) : (

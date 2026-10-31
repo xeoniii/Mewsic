@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { DownloadCloud, Sparkles, X } from "lucide-react";
+import { DownloadCloud, X } from "lucide-react";
 
 interface UpdatePromptModalProps {
   version: string;
@@ -23,65 +23,64 @@ export function UpdatePromptModal({
 
   return (
     <div
-      className="fixed inset-0 z-[1150] flex items-center justify-center p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[1100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
       onClick={onNah}
     >
       <div
-        className="w-full max-w-sm glass rounded-3xl overflow-hidden shadow-2xl border border-white/10 relative p-6 flex flex-col items-center text-center animate-in zoom-in-95 duration-300"
+        className="w-full max-w-md glass rounded-2xl overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Ambient background glow */}
-        <div className="absolute -top-12 -right-12 w-36 h-36 bg-accent/20 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute -bottom-12 -left-12 w-36 h-36 bg-accent/15 rounded-full blur-2xl pointer-events-none" />
+        {/* Header section (matches UpdateModal) */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
+          <h2 className="font-display font-semibold text-text-primary">Mewsic Updater</h2>
+          <button
+            onClick={onNah}
+            className="btn-icon p-1"
+            title="Dismiss"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
 
-        {/* Close Icon */}
-        <button
-          onClick={onNah}
-          className="btn-icon p-1.5 absolute top-4 right-4 text-text-muted hover:text-text-primary hover:bg-surface-raised rounded-xl transition-colors"
-          title="Dismiss"
-          aria-label="Close"
-        >
-          <X size={16} />
-        </button>
-
-        {/* Animated Icon Stage */}
-        <div className="relative mb-4 mt-2">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-accent/25 to-accent/10 border border-accent/30 flex items-center justify-center text-accent shadow-lg shadow-accent/15">
-            <Sparkles size={30} className="animate-pulse" />
+        {/* Main content */}
+        <div className="p-6 flex flex-col gap-6 items-center text-center">
+          {/* Icon stage (matches UpdateModal) */}
+          <div className="relative">
+            <div className="w-20 h-20 rounded-[2.5rem] bg-accent/10 flex items-center justify-center text-accent">
+              <DownloadCloud size={40} className="animate-bounce" />
+            </div>
           </div>
-          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent text-surface-base flex items-center justify-center shadow-md">
-            <DownloadCloud size={13} className="stroke-[2.5]" />
+
+          {/* Text stage */}
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold tracking-tight text-text-primary">
+              Update Available!
+            </h2>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-semibold my-1">
+              <span>Version {version}</span>
+            </div>
+            <p className="text-sm text-text-muted font-medium leading-relaxed px-4">
+              Mewsic v{version} is ready for deployment. Would you like to download and install this update now?
+            </p>
           </div>
         </div>
 
-        {/* Content */}
-        <h3 className="text-xl font-display font-bold text-text-primary tracking-tight">
-          Update Available!
-        </h3>
-
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-semibold mt-2 mb-3">
-          <span>Version {version}</span>
-        </div>
-
-        <p className="text-text-secondary text-sm leading-relaxed px-2 mb-6">
-          A fresh version of Mewsic is ready with new features, performance boosts, and fixes. Would you like to update now?
-        </p>
-
-        {/* Actions */}
-        <div className="flex items-center gap-3 w-full">
+        {/* Footer section (matches UpdateModal) */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border-subtle bg-surface-overlay/30">
           <button
             id="btn-update-nah"
             onClick={onNah}
-            className="flex-1 h-11 px-5 rounded-xl border border-border-subtle bg-surface-base hover:bg-surface-raised text-text-muted hover:text-text-primary text-sm font-medium transition-all duration-200 active:scale-95 cursor-pointer"
+            className="btn-accent bg-surface-overlay text-text-secondary hover:opacity-80"
           >
-            Nah
+            Later
           </button>
           <button
             id="btn-update-now"
             onClick={onUpdateNow}
-            className="flex-1 h-11 px-5 rounded-xl bg-accent hover:opacity-90 text-surface-base font-semibold text-sm shadow-lg shadow-accent/25 hover:shadow-accent/40 flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer group"
+            className="btn-accent"
           >
-            <DownloadCloud size={16} className="transition-transform group-hover:-translate-y-0.5" />
+            <DownloadCloud size={14} />
             <span>Update Now</span>
           </button>
         </div>

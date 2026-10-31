@@ -81,13 +81,13 @@ export function PlayerBar() {
 
   return (
     <div
-      className="glass-heavy border-t border-border-glass flex items-center gap-4 px-4 flex-shrink-0"
+      className="bg-surface-base border-t border-border-subtle flex items-center gap-4 px-4 flex-shrink-0"
       style={{ height: "var(--player-height)" }}
     >
       {
   // This is the track info (left) part
 }
-      <div className="flex items-center gap-2.5 min-w-0 flex-shrink-0" style={{ width: 240 }}>
+      <div className="flex items-center gap-3 min-w-0 flex-shrink-0" style={{ width: 260 }}>
         <div
           className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 ${
             currentTrack ? "shadow-glass" : ""
@@ -104,8 +104,11 @@ export function PlayerBar() {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-medium text-text-primary truncate leading-tight">
-              {currentTrack ? truncate(currentTrack.title, 18) : "Nothing playing"}
+            <span
+              className="text-base font-semibold text-text-primary truncate leading-tight tracking-tight"
+              title={currentTrack?.title}
+            >
+              {currentTrack ? truncate(currentTrack.title, 24) : "Nothing playing"}
             </span>
             {currentTrack && (currentTrack.provider === "virtual" || currentTrack.id.startsWith("web-stream:") || (currentTrack.filePath.startsWith("http") && !currentTrack.filePath.startsWith("http://127.0.0.1:1422/"))) && (
               <span className="text-[9px] font-bold uppercase tracking-wider bg-accent/20 text-accent px-1.5 py-0.5 rounded border border-accent/30 flex-shrink-0">
@@ -113,24 +116,10 @@ export function PlayerBar() {
               </span>
             )}
           </div>
-          <p className="text-xs text-text-muted truncate mt-0.5">
-            {currentTrack ? truncate(currentTrack.artist, 22) : "—"}
+          <p className="text-xs text-text-muted truncate mt-0.5" title={currentTrack?.artist}>
+            {currentTrack ? truncate(currentTrack.artist, 26) : "—"}
           </p>
         </div>
-
-        {currentTrack && (
-          <button
-            onClick={() => toggleFavorite(currentTrack)}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform active:scale-90 ${
-              isFav
-                ? "text-rose-500 hover:text-rose-400"
-                : "text-text-muted hover:text-rose-400"
-            }`}
-            title={isFav ? "Favorited" : "Favorite"}
-          >
-            <Heart size={16} fill={isFav ? "currentColor" : "none"} />
-          </button>
-        )}
       </div>
 
       {
@@ -237,8 +226,22 @@ export function PlayerBar() {
 }
       <div
         className="flex items-center gap-2 flex-shrink-0 mr-4"
-        style={{ width: 190 }}
+        style={{ width: 220 }}
       >
+        <button
+          onClick={() => currentTrack && toggleFavorite(currentTrack)}
+          disabled={!currentTrack}
+          className={`btn-icon flex-shrink-0 transition-transform active:scale-90 ${
+            !currentTrack
+              ? "opacity-30 cursor-not-allowed"
+              : isFav
+              ? "text-rose-500 hover:text-rose-400"
+              : "text-text-muted hover:text-rose-400"
+          }`}
+          title={!currentTrack ? "No track playing" : isFav ? "Favorited" : "Favorite"}
+        >
+          <Heart size={15} fill={isFav ? "currentColor" : "none"} />
+        </button>
         <button
           onClick={() => {
             if (activeView === "queue") {

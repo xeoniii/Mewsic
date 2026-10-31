@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import {
-  Palette, FolderOpen, RefreshCw, Trash2, Check, RotateCcw,
+  Palette, FolderOpen, RefreshCw, Trash2, RotateCcw, Check,
   Info, Music2, Volume2, FolderInput, Sun, Moon, Keyboard, Monitor, Bell, Zap, FileUp, FolderPlus, Database, Power,
-  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Crop, Radio
+  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Radio
 } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useStore } from "../../store";
@@ -61,8 +61,6 @@ export function SettingsView() {
     setTheme,
     customTitlebar,
     setCustomTitlebar,
-    roundedCorners,
-    setRoundedCorners,
     shortcuts,
     setShortcut,
     resetShortcuts,
@@ -96,8 +94,6 @@ export function SettingsView() {
     setTheme: s.setTheme,
     customTitlebar: s.customTitlebar,
     setCustomTitlebar: s.setCustomTitlebar,
-    roundedCorners: s.roundedCorners,
-    setRoundedCorners: s.setRoundedCorners,
     shortcuts: s.shortcuts,
     setShortcut: s.setShortcut,
     resetShortcuts: s.resetShortcuts,
@@ -137,7 +133,7 @@ export function SettingsView() {
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("1.2.1");
+  const [appVersion, setAppVersion] = useState<string>("1.2.2");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -303,10 +299,6 @@ export function SettingsView() {
                     step={0.05}
                     value={localGuiScale}
                     onChange={setLocalGuiScale}
-                    onChangeCommit={(v: number) => {
-                      setLocalGuiScale(v);
-                      setGuiScale(v);
-                    }}
                     formatTooltip={(v: number) => `${v.toFixed(2)}x`}
                   />
                   <span className="text-xs text-text-muted font-mono">2</span>
@@ -317,7 +309,7 @@ export function SettingsView() {
                   </span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { setGuiScale(1.0); setLocalGuiScale(1.0); }}
+                      onClick={() => { setLocalGuiScale(1.0); }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-raised border border-border-subtle text-[10px] font-black text-text-muted hover:text-accent hover:border-accent transition-all uppercase tracking-widest"
                     >
                       <RotateCcw size={10} />
@@ -548,19 +540,6 @@ export function SettingsView() {
                   </label>
                 </div>
 
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-overlay border border-border-subtle">
-                  <div className="flex items-center gap-2.5">
-                    <Crop size={14} className={roundedCorners ? "text-accent" : "text-text-muted"} />
-                    <div>
-                      <p className="text-[13px] font-medium text-text-primary leading-none">Rounded Corners</p>
-                      <p className="text-[9px] text-text-muted mt-1">Applies radius to the window borders</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={roundedCorners} onChange={(e) => setRoundedCorners(e.target.checked)} />
-                    <div className="w-9 h-5 bg-surface-raised rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent border border-border-subtle" />
-                  </label>
-                </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-overlay border border-border-subtle">
                   <div className="flex items-center gap-2.5">
@@ -665,9 +644,12 @@ export function SettingsView() {
             <div className="flex flex-col p-5 rounded-xl bg-surface-overlay border border-border-subtle gap-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 shadow-sm flex items-center justify-center flex-shrink-0">
-                    <Music2 size={24} className="text-accent" />
-                  </div>
+                  <img
+                    src="/icon.png"
+                    alt="Mewsic Logo"
+                    className="w-12 h-12 rounded-2xl shadow-md flex-shrink-0 object-contain"
+                    draggable={false}
+                  />
                   <div className="flex flex-col">
                     <p className="font-display font-black text-xl text-text-primary tracking-tight">Mewsic <span className="text-accent text-sm ml-1">v{appVersion}</span></p>
                     <p className="text-[10px] text-text-muted mt-1 uppercase tracking-widest font-bold">Crafted with love for high-quality audio.</p>
@@ -696,15 +678,15 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Overhauled Harbour Page because the old one was the exact same as it was when it got first added.</span>
+                    <span>Made the Spatial panner have smooth control.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>You can now track your downloads and its history in the new downlaods section in harbour.</span>
+                    <span>Adjusted panner for more realistic directional audio.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Added support for favouriting tracks.</span>
+                    <span>Fixed a bug that caused the Interface scale slider to apply without pressing apply.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
@@ -712,7 +694,39 @@ export function SettingsView() {
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Other minor changes and bug fixes.</span>
+                    <span>Removed rounded corner from settings.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Fixed issues with auto-playlist icon applying and playlist track indexing.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>UI changes to PlaylistView.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>UI changes to PlaylistsView.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Moved favorites button to the right to allow for longer track titles.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Removed unnecessary blur, shadow, etc.. that caused performance issues.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Added better low end mode optimizations for smooth functioning on low end devices.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>UI changes to updater modals.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="text-accent mt-0.5 font-bold">•</span>
+                    <span>Minor unrelated UI adjustments.</span>
                   </li>
                 </ul>
               </div>

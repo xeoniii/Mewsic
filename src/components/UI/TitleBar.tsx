@@ -14,7 +14,7 @@ export function TitleBar() {
   };
 
   return (
-    <div id="custom-titlebar" className="h-8 relative flex items-center justify-between bg-surface-base/80 backdrop-blur-md border-b border-border-subtle select-none z-[1000]">
+    <div id="custom-titlebar" className="h-8 relative flex items-center justify-between bg-surface-base border-b border-border-subtle select-none z-[1000]">
       {/* Draggable titlebar area - clear of window control buttons on right */}
       <div 
         onMouseDown={handleDrag}

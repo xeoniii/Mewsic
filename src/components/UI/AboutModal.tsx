@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Music2, Globe, Github } from "lucide-react";
+import { X, Globe, Github } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { getVersion } from "@tauri-apps/api/app";
 import { getOSName } from "../../utils/tauriApi";
@@ -7,7 +7,7 @@ import { useStore } from "../../store";
 
 export function AboutModal() {
   const { setShowAbout } = useStore();
-  const [appVersion, setAppVersion] = useState<string>("1.2.1");
+  const [appVersion, setAppVersion] = useState<string>("1.2.2");
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => { });
@@ -61,9 +61,12 @@ export function AboutModal() {
           <div className="flex flex-col p-8 rounded-2xl bg-surface-overlay border border-border-subtle gap-8 w-full text-left">
             <div className="flex justify-between items-center gap-4">
               <div className="flex items-center gap-6">
-                <div className="w-16 h-16 rounded-3xl bg-white/5 border border-white/10 shadow-sm flex items-center justify-center flex-shrink-0">
-                  <Music2 size={32} className="text-accent" />
-                </div>
+                <img
+                  src="/icon.png"
+                  alt="Mewsic Logo"
+                  className="w-16 h-16 rounded-3xl shadow-md flex-shrink-0 object-contain"
+                  draggable={false}
+                />
                 <div className="flex flex-col">
                   <p className="font-display font-black text-3xl text-text-primary tracking-tight">Mewsic <span className="text-accent text-lg ml-1">v{appVersion}</span></p>
                   <p className="text-xs text-text-muted mt-1 uppercase tracking-widest font-bold">Crafted with love by xeoniii.dev</p>
@@ -96,7 +99,7 @@ export function AboutModal() {
               <div className="flex flex-col items-end">
                 <p className="text-[9px] text-text-muted/60 font-mono uppercase tracking-[0.2em]">Build: {getBuildId()}</p>
                 <p className="text-[9px] text-text-muted/60 font-mono uppercase tracking-[0.2em] mt-0.5">{getOSName()}</p>
-                <p className="text-[9px] text-accent/60 font-mono uppercase tracking-[0.2em] mt-0.5">24,242 Lines of code</p>
+                <p className="text-[9px] text-accent/60 font-mono uppercase tracking-[0.2em] mt-0.5">24,638 Lines of code</p>
               </div>
             </div>
           </div>

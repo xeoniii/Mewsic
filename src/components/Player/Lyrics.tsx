@@ -189,8 +189,8 @@ export function Lyrics({
   if (isSyncMode && setSyncLines) {
     return (
       <div ref={containerRef} className="h-full overflow-y-auto scrollbar-hide relative" style={{ paddingBottom: '35vh' }}>
-        <div className="sticky top-0 z-20 pt-5 pb-4 px-4 sm:px-8 bg-surface-base/90 backdrop-blur-2xl border-b border-border-glass">
-          <div className="bg-surface-overlay/90 backdrop-blur-2xl py-3 px-4 rounded-2xl border border-border-glass shadow-glass flex items-center justify-between gap-3">
+        <div className="sticky top-0 z-20 pt-5 pb-4 px-4 sm:px-8 bg-surface-base border-b border-border-subtle">
+          <div className="bg-surface-overlay py-3 px-4 rounded-2xl border border-border-subtle flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span 
                 ref={timeDisplayRef}

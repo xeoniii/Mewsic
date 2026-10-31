@@ -21,7 +21,7 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
   const [error, setError] = useState<string | null>(null);
   const [linuxPackageType, setLinuxPackageType] = useState<"deb" | "rpm">("deb");
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  
+
   const osName = getOSName();
   const isLinux = osName === "Linux";
 
@@ -44,7 +44,7 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
     setStatus("checking");
     try {
       const mockVersion = localStorage.getItem("mewsic-mock-version");
-      
+
       let update;
       if (!mockVersion) {
         try {
@@ -80,18 +80,18 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
                 }
                 if (vA.pre && !vB.pre) return -1;
                 if (!vA.pre && vB.pre) return 1;
-                if (vA.pre && vB.pre) return vA.pre.localeCompare(vB.pre, undefined, {numeric: true});
+                if (vA.pre && vB.pre) return vA.pre.localeCompare(vB.pre, undefined, { numeric: true });
                 return 0;
               };
-              
+
               const comparison = compareSemver(currentVersion, remoteVersion);
-              
+
               if (comparison < 0) {
                 setNewVersion(remoteVersion);
                 setStatus("available");
                 return;
               }
-              
+
               if (comparison > 0) {
                 setStatus("early-access");
                 return;
@@ -117,10 +117,10 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
 
   const handleInstall = async () => {
     if (isLinux) {
-      const finalUrl = linuxPackageType === "deb" 
+      const finalUrl = linuxPackageType === "deb"
         ? "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup-Slim.deb"
         : "https://github.com/xeoniii/Mewsic/releases/latest/download/Mewsic-Setup-Slim.rpm";
-      
+
       try {
         await open(finalUrl);
         setStatus("up-to-date");
@@ -138,7 +138,7 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
       if (update?.available) {
         let downloaded = 0;
         let contentLength = 0;
-        
+
         await update.downloadAndInstall((event) => {
           switch (event.event) {
             case 'Started':
@@ -154,7 +154,7 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
               break;
           }
         });
-        
+
         await relaunch();
       } else {
         setStatus("up-to-date");
@@ -168,27 +168,27 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
 
   return (
     <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div 
+      <div
         className="w-full max-w-md glass rounded-2xl overflow-hidden shadow-2xl relative"
         onClick={e => e.stopPropagation()}
       >
         {
-  // This is the header section
-}
+          // This is the header section
+        }
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
-          <h2 className="font-display font-semibold text-text-primary">Software Update</h2>
+          <h2 className="font-display font-semibold text-text-primary">Mewsic Updater</h2>
           <button onClick={onClose} className="btn-icon p-1">
             <X size={16} />
           </button>
         </div>
 
         {
-  // Here is the main content
-}
+          // Here is the main content
+        }
         <div className="p-6 flex flex-col gap-6 items-center text-center">
           {
-  // This is the icon stage part
-}
+            // This is the icon stage part
+          }
           <div className="relative">
             <div className="w-20 h-20 rounded-[2.5rem] bg-accent/10 flex items-center justify-center text-accent">
               {status === "checking" && <RefreshCw size={40} className="animate-spin" />}
@@ -199,13 +199,13 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
               {status === "early-access" && <Sparkles size={40} className="text-fuchsia-500 animate-pulse" />}
             </div>
             {status === "checking" && (
-               <div className="absolute -inset-2 rounded-[3rem] border-2 border-accent/20 border-t-accent animate-spin" />
+              <div className="absolute -inset-2 rounded-[3rem] border-2 border-accent/20 border-t-accent animate-spin" />
             )}
           </div>
 
           {
-  // This is the text stage part
-}
+            // This is the text stage part
+          }
           <div className="space-y-2">
             <h2 className="text-xl font-bold tracking-tight text-text-primary">
               {status === "checking" && "Checking for Updates"}
@@ -226,8 +226,8 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
           </div>
 
           {
-  // This is the action stage / progress bar / dropdown part
-}
+            // This is the action stage / progress bar / dropdown part
+          }
           <div className="w-full space-y-4">
             {status === "available" && isLinux && (
               <div className="relative text-left" onClick={(e) => e.stopPropagation()}>
@@ -242,7 +242,7 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
                   </div>
                   <ChevronDown size={16} className={`text-text-muted transition-transform duration-300 ${dropdownOpen ? 'rotate-180 text-accent' : ''}`} />
                 </button>
-                
+
                 {dropdownOpen && (
                   <div className="absolute top-full mt-2 left-0 right-0 bg-surface-raised border border-border-subtle rounded-xl overflow-hidden shadow-2xl z-50 animate-scale-in p-1.5">
                     {[
@@ -256,11 +256,10 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
                           setLinuxPackageType(p.id as "deb" | "rpm");
                           setDropdownOpen(false);
                         }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${
-                          linuxPackageType === p.id 
-                            ? 'bg-accent/10 text-accent font-bold' 
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${linuxPackageType === p.id
+                            ? 'bg-accent/10 text-accent font-bold'
                             : 'text-text-secondary hover:bg-surface-base hover:text-text-primary'
-                        }`}
+                          }`}
                       >
                         <span>{p.name}</span>
                         {linuxPackageType === p.id && <Check size={14} className="text-accent" />}
@@ -278,8 +277,8 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
                   <span>{progress.toFixed(0)}%</span>
                 </div>
                 <div className="w-full h-2 bg-surface-overlay rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-accent transition-all duration-300" 
+                  <div
+                    className="h-full bg-accent transition-all duration-300"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
@@ -289,17 +288,17 @@ export function UpdateModal({ onClose, initialVersion, autoStart }: UpdateModalP
         </div>
 
         {
-  // This is the footer section
-}
+          // This is the footer section
+        }
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border-subtle bg-surface-overlay/30">
           <button onClick={onClose} className="btn-accent bg-surface-overlay text-text-secondary hover:opacity-80">
             {status === "up-to-date" || status === "error" || status === "early-access" ? "Close" : "Cancel"}
           </button>
-          
+
           {status === "available" && (
             <button onClick={handleInstall} className="btn-accent">
-               <DownloadCloud size={14} />
-               {isLinux ? "Download in Browser" : "Download & Install"}
+              <DownloadCloud size={14} />
+              {isLinux ? "Download in Browser" : "Download & Install"}
             </button>
           )}
         </div>
