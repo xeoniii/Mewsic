@@ -143,6 +143,8 @@ interface UISlice {
   smoothScrollEnabled: boolean;
   minecraftIntegrationEnabled: boolean;
   mewsifyIntegrationEnabled: boolean;
+  outputDeviceId: string;
+  outputDeviceLabel: string;
   sidebarCollapsed: boolean;
   anonymousPresenceEnabled: boolean;
   setAnonymousPresenceEnabled: (v: boolean) => void;
@@ -212,6 +214,7 @@ interface UISlice {
   setSmoothScrollEnabled: (v: boolean) => void;
   setMinecraftIntegrationEnabled: (v: boolean) => void;
   setMewsifyIntegrationEnabled: (v: boolean) => void;
+  setOutputDeviceId: (id: string, label?: string) => void;
 
 
 
@@ -667,6 +670,8 @@ export const useStore = create<Store>()(
       mewsifyIntegrationEnabled: false,
       sidebarCollapsed: false,
       anonymousPresenceEnabled: true,
+      outputDeviceId: "",
+      outputDeviceLabel: "System Default",
       setAnonymousPresenceEnabled: (v: boolean) => set({ anonymousPresenceEnabled: v }),
 
       setActiveView: (v, skipHistory = false) => {
@@ -768,6 +773,10 @@ export const useStore = create<Store>()(
           "Reload Required"
         );
       },
+      setOutputDeviceId: (id, label) => set((s) => ({
+        outputDeviceId: id,
+        outputDeviceLabel: label !== undefined ? label : (id === "" ? "System Default" : s.outputDeviceLabel),
+      })),
 
       shortcuts: {
         togglePlay: { key: "Space", ctrl: false, shift: false, alt: false },
@@ -1011,6 +1020,8 @@ export const useStore = create<Store>()(
         trackPlayCounts: s.trackPlayCounts,
         trackListenDurations: s.trackListenDurations,
         favorites: s.favorites,
+        outputDeviceId: s.outputDeviceId,
+        outputDeviceLabel: s.outputDeviceLabel,
       }),
     }
   )

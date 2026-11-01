@@ -26,6 +26,7 @@ let currentPanY = 0;
 let currentPanAuto = false;
 let autoPanInterval: ReturnType<typeof setInterval> | null = null;
 let autoPanAngle = 0;
+let currentSinkId = ""; // "" means system default
 
 try {
   audioInstance = new Audio();
@@ -222,6 +223,9 @@ export function initAudioContext() {
     });
 
     syncEngineState();
+    if (currentSinkId && typeof (audioCtx as any).setSinkId === "function") {
+      (audioCtx as any).setSinkId(currentSinkId === "default" ? "" : currentSinkId).catch(() => {});
+    }
     if (audioCtx.state === "suspended") audioCtx.resume().catch(() => { });
   } catch (err) {
     console.error("AudioEngine: web audio init failed", err);
@@ -276,6 +280,44 @@ export function setEqGain(index: number, gain: number) {
 export function setLowEndMode(enabled: boolean) {
   isLowEndMode = enabled;
   syncReverb();
+}
+
+/**
+ * Switch audio output to a specific device.
+ * Uses HTMLMediaElement.setSinkId (widely supported in Chromium-based runtimes like Tauri).
+ * Falls back to a no-op if setSinkId is unavailable.
+ */
+export async function setOutputDevice(deviceId: string): Promise<void> {
+  const effectiveDeviceId = deviceId.startsWith("{0.0") ? "" : deviceId;
+  if (effectiveDeviceId === currentSinkId) return;
+  currentSinkId = effectiveDeviceId;
+  const target = effectiveDeviceId === "" ? "default" : effectiveDeviceId;
+
+  // Apply to the underlying <audio> element — this is all that's needed when
+  // Web Audio context routes through audioCtx.destination which inherits from
+  // the media element's sink.
+  const el = audioInstance as any;
+  if (typeof el.setSinkId === "function") {
+    try {
+      await el.setSinkId(target === "default" ? "" : target);
+    } catch (err) {
+      console.warn("AudioEngine: setSinkId failed on audio element", err);
+    }
+  }
+
+  // Also apply to AudioContext sink if supported
+  if (audioCtx && typeof (audioCtx as any).setSinkId === "function") {
+    try {
+      await (audioCtx as any).setSinkId(target === "default" ? "" : target);
+    } catch (err) {
+      console.warn("AudioEngine: setSinkId failed on audioCtx", err);
+    }
+  }
+}
+
+/** Returns the currently selected sink ID (empty string = system default). */
+export function getCurrentSinkId(): string {
+  return currentSinkId;
 }
 
 export function setSpatialPan(x: number, y: number) {

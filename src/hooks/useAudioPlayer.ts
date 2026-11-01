@@ -21,6 +21,7 @@ import {
   setEqGain,
   setSpatialPan,
   setPanAuto,
+  setOutputDevice,
 } from "../utils/audioEngine";
 
 // how often to push currentTime into the store — 50ms is smooth enough for the progress bar
@@ -54,6 +55,7 @@ export function useAudioPlayer() {
     panX,
     panY,
     panAuto,
+    outputDeviceId,
   } = useStore(
     useShallow((s) => ({
       currentTrack: s.currentTrack,
@@ -75,6 +77,7 @@ export function useAudioPlayer() {
       panX: s.panX,
       panY: s.panY,
       panAuto: s.panAuto,
+      outputDeviceId: s.outputDeviceId ?? "",
     }))
   );
 
@@ -243,6 +246,11 @@ export function useAudioPlayer() {
   useEffect(() => {
     if (Array.isArray(eqGains)) eqGains.forEach((gain, i) => setEqGain(i, gain));
   }, [eqGains]);
+
+  // Apply persisted output device on mount and whenever the user changes it
+  useEffect(() => {
+    setOutputDevice(outputDeviceId ?? "");
+  }, [outputDeviceId]);
 
   // discord RPC updates — debounced to avoid spamming on rapid track changes
   useEffect(() => {

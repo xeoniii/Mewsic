@@ -33,7 +33,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
@@ -252,9 +252,32 @@ impl DiscordState {
     }
 }
 
+#[derive(Clone)]
+pub struct ActiveDownloadHandle {
+    pub cancelled: Arc<AtomicBool>,
+    pub pid: Arc<Mutex<Option<u32>>>,
+    pub target_path: Arc<Mutex<Option<PathBuf>>>,
+}
+
+struct ActiveDownloadGuard {
+    app_handle: tauri::AppHandle,
+    download_id: String,
+}
+
+impl Drop for ActiveDownloadGuard {
+    fn drop(&mut self) {
+        if let Some(state) = self.app_handle.try_state::<AppState>() {
+            if let Ok(mut map) = state.active_downloads.lock() {
+                map.remove(&self.download_id);
+            }
+        }
+    }
+}
+
 pub struct AppState {
     pub tray_enabled: AtomicBool,
     pub dev_mode_enabled: AtomicBool,
+    pub active_downloads: Mutex<std::collections::HashMap<String, ActiveDownloadHandle>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -367,7 +390,9 @@ fn parse_track(path: &Path) -> Result<Track, String> {
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "Unknown Artist".to_string()),
             t.genre().map(|s| s.to_string()).unwrap_or_default(),
-            t.year(),
+            t.year()
+                .or_else(|| t.get_string(&ItemKey::Year).and_then(|s| s.parse::<u32>().ok()))
+                .or_else(|| t.get_string(&ItemKey::RecordingDate).and_then(|d| d.chars().take(4).collect::<String>().parse::<u32>().ok())),
             t.track(),
         )
     } else {
@@ -1049,9 +1074,11 @@ async fn search_jiosaavn(app_handle: tauri::AppHandle, query: String) -> Result<
             };
 
             let year = s["more_info"]["year"]
-                .as_str()
-                .or_else(|| s["year"].as_str())
-                .and_then(|y| y.parse::<i32>().ok());
+                .as_i64()
+                .map(|y| y as i32)
+                .or_else(|| s["more_info"]["year"].as_str().and_then(|y| y.parse::<i32>().ok()))
+                .or_else(|| s["year"].as_i64().map(|y| y as i32))
+                .or_else(|| s["year"].as_str().and_then(|y| y.parse::<i32>().ok()));
             let genre = s["more_info"]["genre"]
                 .as_str()
                 .map(|g| clean_artist_name(g));
@@ -1437,6 +1464,20 @@ async fn search_soundcloud(app_handle: tauri::AppHandle, query: String) -> Resul
                 String::new()
             };
 
+            let year = item["release_year"]
+                .as_i64()
+                .map(|y| y as i32)
+                .or_else(|| {
+                    item["upload_date"]
+                        .as_str()
+                        .and_then(|d| if d.len() >= 4 { d[0..4].parse::<i32>().ok() } else { None })
+                })
+                .or_else(|| {
+                    item["release_date"]
+                        .as_str()
+                        .and_then(|d| if d.len() >= 4 { d[0..4].parse::<i32>().ok() } else { None })
+                });
+
             results.push(HarbourSearchResult {
                 id: item["id"].as_str().unwrap_or_default().to_string(),
                 title: clean_title,
@@ -1446,7 +1487,7 @@ async fn search_soundcloud(app_handle: tauri::AppHandle, query: String) -> Resul
                 cover_art,
                 url: item["url"].as_str().unwrap_or_default().to_string(),
                 preview_url: None,
-                year: None,
+                year,
                 genre: None,
             });
         }
@@ -1505,6 +1546,20 @@ async fn youtube_search_fallback(app_handle: tauri::AppHandle, query: String) ->
                 (uploader, title)
             };
 
+            let year = item["release_year"]
+                .as_i64()
+                .map(|y| y as i32)
+                .or_else(|| {
+                    item["upload_date"]
+                        .as_str()
+                        .and_then(|d| if d.len() >= 4 { d[0..4].parse::<i32>().ok() } else { None })
+                })
+                .or_else(|| {
+                    item["release_date"]
+                        .as_str()
+                        .and_then(|d| if d.len() >= 4 { d[0..4].parse::<i32>().ok() } else { None })
+                });
+
             results.push(HarbourSearchResult {
                 id: item["id"].as_str().unwrap_or_default().to_string(),
                 title: clean_title,
@@ -1518,7 +1573,7 @@ async fn youtube_search_fallback(app_handle: tauri::AppHandle, query: String) ->
                 },
                 url: item["url"].as_str().unwrap_or_default().to_string(),
                 preview_url: None,
-                year: None,
+                year,
                 genre: None,
             });
         }
@@ -1610,6 +1665,8 @@ struct JioSaavnResolved {
     album: String,
     cover_art: String,
     format: String,
+    year: Option<i32>,
+    genre: Option<String>,
 }
 
 async fn resolve_jiosaavn_stream(
@@ -1658,8 +1715,20 @@ async fn resolve_jiosaavn_stream(
 
         let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         if let Some(songs) = data["songs"]["data"].as_array() {
-            if let Some(first) = songs.first() {
-                target_id = first["id"].as_str().unwrap_or_default().to_string();
+            let lower_title = title.to_lowercase();
+            let lower_artist = artist.to_lowercase();
+            for s in songs {
+                let s_title = s["title"].as_str().unwrap_or_default().to_lowercase();
+                let s_desc = s["description"].as_str().unwrap_or_default().to_lowercase();
+                let s_artists = s["more_info"]["primary_artists"].as_str().unwrap_or_default().to_lowercase();
+
+                let title_match = s_title.contains(&lower_title) || lower_title.contains(&s_title);
+                let artist_match = s_desc.contains(&lower_artist) || s_artists.contains(&lower_artist) || lower_artist.contains(&s_artists);
+
+                if title_match && artist_match {
+                    target_id = s["id"].as_str().unwrap_or_default().to_string();
+                    break;
+                }
             }
         }
     }
@@ -1719,6 +1788,12 @@ async fn resolve_jiosaavn_stream(
         "mp3".to_string()
     };
 
+    let s_year = song_obj["year"]
+        .as_i64()
+        .map(|y| y as i32)
+        .or_else(|| song_obj["year"].as_str().and_then(|y| y.parse::<i32>().ok()));
+    let s_genre = song_obj["genre"].as_str().map(|g| clean_artist_name(g));
+
     Ok(JioSaavnResolved {
         cdn_url,
         title: s_title,
@@ -1726,7 +1801,54 @@ async fn resolve_jiosaavn_stream(
         album: s_album,
         cover_art: s_cover,
         format: fmt,
+        year: s_year,
+        genre: s_genre,
     })
+}
+
+fn kill_process(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("taskkill")
+            .args(&["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(&["-9", &pid.to_string()])
+            .output();
+    }
+}
+
+fn cleanup_target_files(target_path: &Path) {
+    let _ = fs::remove_file(target_path);
+    let part_path = PathBuf::from(format!("{}.part", target_path.display()));
+    let _ = fs::remove_file(part_path);
+    let ytdl_path = PathBuf::from(format!("{}.ytdl", target_path.display()));
+    let _ = fs::remove_file(ytdl_path);
+
+    if let (Some(parent), Some(file_stem)) = (target_path.parent(), target_path.file_stem()) {
+        let stem_str = file_stem.to_string_lossy();
+        if let Ok(entries) = fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let name = p.file_name().unwrap_or_default().to_string_lossy();
+                if name.starts_with(&*stem_str)
+                    && (name.ends_with(".part")
+                        || name.ends_with(".ytdl")
+                        || name.ends_with(".temp")
+                        || name.ends_with(".mp4")
+                        || name.ends_with(".webm")
+                        || name.ends_with(".m4a"))
+                {
+                    let _ = fs::remove_file(p);
+                }
+            }
+        }
+    }
 }
 
 async fn download_jiosaavn_direct(
@@ -1735,6 +1857,7 @@ async fn download_jiosaavn_direct(
     cdn_url: &str,
     target_path: &Path,
     download_id: &str,
+    cancelled: Arc<AtomicBool>,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
     use std::io::Write;
@@ -1768,6 +1891,11 @@ async fn download_jiosaavn_direct(
     });
 
     while let Some(chunk_res) = stream.next().await {
+        if cancelled.load(Ordering::Relaxed) {
+            drop(file);
+            cleanup_target_files(target_path);
+            return Err("Download cancelled".to_string());
+        }
         let chunk = chunk_res.map_err(|e| format!("Stream read error: {}", e))?;
         file.write_all(&chunk).map_err(|e| format!("Disk write error: {}", e))?;
         downloaded += chunk.len() as u64;
@@ -1803,6 +1931,36 @@ async fn tag_downloaded_file(
     let clean_artist = clean_artist_name(artist);
     let clean_album = clean_artist_name(album);
 
+    // If year is missing, try a fast lookup via iTunes Search API (3-sec timeout)
+    let mut resolved_year = year;
+    if resolved_year.is_none() && !title.is_empty() {
+        let clean_q = format!("{} {}", clean_artist, title);
+        let search_url = format!(
+            "https://itunes.apple.com/search?term={}&entity=song&limit=1",
+            urlencoding::encode(&clean_q)
+        );
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .unwrap_or_default();
+        if let Ok(resp) = client
+            .get(&search_url)
+            .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .send()
+            .await
+        {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                if let Some(first) = data["results"].as_array().and_then(|arr| arr.first()) {
+                    if let Some(d) = first["releaseDate"].as_str() {
+                        if d.len() >= 4 {
+                            resolved_year = d[0..4].parse::<i32>().ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if let Ok(mut tagged_file) = lofty::read_from_path(target_path) {
         let tag = match tagged_file.primary_tag_mut() {
             Some(t) => t,
@@ -1814,21 +1972,27 @@ async fn tag_downloaded_file(
         };
 
         if !title.is_empty() {
+            tag.set_title(title.to_string());
             tag.insert_text(ItemKey::TrackTitle, title.to_string());
         }
         if !clean_artist.is_empty() {
+            tag.set_artist(clean_artist.clone());
             tag.insert_text(ItemKey::TrackArtist, clean_artist.clone());
         }
         if !clean_album.is_empty() {
+            tag.set_album(clean_album.clone());
             tag.insert_text(ItemKey::AlbumTitle, clean_album);
         }
         if let Some(g) = genre {
             if !g.trim().is_empty() {
+                tag.set_genre(g.trim().to_string());
                 tag.insert_text(ItemKey::Genre, g.trim().to_string());
             }
         }
-        if let Some(y) = year {
+        if let Some(y) = resolved_year {
+            tag.set_year(y as u32);
             tag.insert_text(ItemKey::Year, y.to_string());
+            tag.insert_text(ItemKey::RecordingDate, y.to_string());
         }
 
         // Save source ID and provider for recommendation feature
@@ -1849,9 +2013,13 @@ async fn tag_downloaded_file(
             handle_downloaded_lyrics(&lyrics_text, tag);
         }
 
-        // Attempt to download and embed cover art
+        // Attempt to download and embed cover art with strict 6s timeout so it never hangs
         if !cover_art.is_empty() {
-            if let Ok(resp) = reqwest::get(cover_art).await {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(6))
+                .build()
+                .unwrap_or_default();
+            if let Ok(resp) = client.get(cover_art).send().await {
                 if let Ok(bytes) = resp.bytes().await {
                     let picture = Picture::new_unchecked(
                         PictureType::CoverFront,
@@ -1882,6 +2050,321 @@ fn sanitize_filename_component(s: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct YouTubeCandidate {
+    id: String,
+    title: String,
+    uploader: String,
+    duration: Option<f64>,
+    score: f64,
+}
+
+fn score_youtube_candidate(
+    cand_title: &str,
+    cand_uploader: &str,
+    cand_dur: Option<f64>,
+    target_title: &str,
+    target_artist: &str,
+    expected_dur: Option<f64>,
+) -> f64 {
+    let lower_cand_title = cand_title.to_lowercase();
+    let lower_cand_uploader = cand_uploader.to_lowercase();
+    let lower_target_title = target_title.to_lowercase();
+    let lower_target_artist = target_artist.to_lowercase();
+
+    // Split target artist into tokens (handles collaborations e.g. "Kendrick Lamar, Rihanna" or "Daft Punk ft. Pharrell")
+    let artist_tokens: Vec<String> = lower_target_artist
+        .split(|c: char| c == ',' || c == '&' || c == '/' || c == ';')
+        .flat_map(|part| part.split(" feat. ").flat_map(|p| p.split(" ft. ")))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let primary_artist = artist_tokens.first().cloned().unwrap_or_else(|| lower_target_artist.clone());
+    let artist_words: Vec<&str> = primary_artist
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| s.len() >= 2)
+        .collect();
+
+    let title_words: Vec<&str> = lower_target_title
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let mut score = 0.0;
+
+    // 1. ARTIST MATCHING (+45 max, -60 penalty)
+    let artist_in_uploader = (!lower_target_artist.is_empty() && lower_cand_uploader.contains(&lower_target_artist))
+        || artist_tokens.iter().any(|t| !t.is_empty() && lower_cand_uploader.contains(t));
+    let artist_in_title = (!lower_target_artist.is_empty() && lower_cand_title.contains(&lower_target_artist))
+        || artist_tokens.iter().any(|t| !t.is_empty() && lower_cand_title.contains(t));
+
+    let mut artist_words_found = 0;
+    for w in &artist_words {
+        if lower_cand_uploader.contains(w) || lower_cand_title.contains(w) {
+            artist_words_found += 1;
+        }
+    }
+
+    if artist_in_uploader {
+        score += 45.0;
+    } else if artist_in_title {
+        score += 35.0;
+    } else if !artist_words.is_empty() && artist_words_found == artist_words.len() {
+        score += 25.0;
+    } else {
+        // Critical: if artist is completely missing from both uploader and title, heavily penalize!
+        score -= 60.0;
+    }
+
+    // 2. TITLE MATCHING (+40 max, -50 penalty)
+    let mut title_words_found = 0;
+    for w in &title_words {
+        if lower_cand_title.contains(w) {
+            title_words_found += 1;
+        }
+    }
+
+    let title_ratio = if !title_words.is_empty() {
+        title_words_found as f64 / title_words.len() as f64
+    } else {
+        0.0
+    };
+
+    if title_ratio >= 1.0 {
+        score += 40.0;
+    } else if title_ratio >= 0.6 {
+        score += 20.0;
+    } else {
+        score -= 50.0;
+    }
+
+    // Penalize conflicting prefixes on short titles (e.g. "New Again", "Never Again" when target is "again")
+    let bad_prefixes = [
+        "new ", "never ", "wonderin' ", "did it ", "i love her ",
+        "here comes ", "born ", "not ", "once ", "see you ",
+        "back ", "try ", "alive ", "start ", "over "
+    ];
+    for bp in bad_prefixes {
+        if lower_cand_title.contains(bp) && !lower_target_title.contains(bp) {
+            score -= 45.0;
+        }
+    }
+
+    // 3. DURATION MATCHING (+35 max, severe penalties for large mismatches)
+    if let (Some(cand_d), Some(exp_d)) = (cand_dur, expected_dur) {
+        if exp_d > 10.0 && cand_d > 5.0 {
+            let diff = (cand_d - exp_d).abs();
+            if diff <= 4.0 {
+                score += 35.0; // Near exact match
+            } else if diff <= 10.0 {
+                score += 25.0;
+            } else if diff <= 20.0 {
+                score += 12.0;
+            } else if diff <= 35.0 {
+                score -= 5.0;
+            } else if diff <= 60.0 {
+                score -= 35.0;
+            } else {
+                score -= 75.0; // Major duration mismatch (> 1 min)
+            }
+
+            // Extreme duration mismatch (e.g. 1-hour loops or 30-min mixes)
+            if cand_d > 500.0 && exp_d < 350.0 {
+                score -= 100.0;
+            }
+        }
+    }
+
+    // 4. OFFICIAL AUDIO / TOPIC BONUSES
+    if lower_cand_uploader.ends_with("- topic") {
+        score += 25.0; // Official YouTube Music track
+    }
+    if (lower_cand_title.contains("official audio") || lower_cand_title.contains("(audio)"))
+        && (artist_in_uploader || artist_in_title)
+    {
+        score += 15.0;
+    }
+    if lower_cand_title.contains("official video") || lower_cand_title.contains("official music video") {
+        score += 10.0;
+    }
+
+    // 5. NEGATIVE FLAGS (Unless target explicitly asked for them)
+    let junk_patterns = [
+        ("slowed", -35.0),
+        ("reverb", -35.0),
+        ("sped up", -35.0),
+        ("nightcore", -40.0),
+        ("daycore", -40.0),
+        ("8d audio", -30.0),
+        ("bass boosted", -25.0),
+        ("cover", -45.0),
+        ("tribute", -45.0),
+        ("instrumental", -40.0),
+        ("karaoke", -45.0),
+        ("remake", -40.0),
+        ("parody", -50.0),
+        ("reaction", -60.0),
+        ("review", -60.0),
+        ("tutorial", -60.0),
+        ("how to", -60.0),
+        ("1 hour", -60.0),
+        ("10 hour", -70.0),
+        ("loop", -50.0),
+        ("extended", -30.0),
+    ];
+
+    for (pattern, penalty) in junk_patterns {
+        if lower_cand_title.contains(pattern) && !lower_target_title.contains(pattern) {
+            score += penalty;
+        }
+    }
+
+    score
+}
+
+async fn resolve_exact_youtube_stream(
+    yt_dlp_path: &Path,
+    clean_artist: &str,
+    title: &str,
+    expected_duration: Option<f64>,
+    app_handle: &tauri::AppHandle,
+    download_id: &str,
+    cancelled: Arc<AtomicBool>,
+) -> Result<String, String> {
+    use std::process::Command;
+    use tauri::Emitter;
+
+    let queries = vec![
+        format!("ytsearch12:{} - {}", clean_artist, title),
+        format!("ytsearch12:{} - {} Topic", clean_artist, title),
+        format!("ytsearch12:{} {}", clean_artist, title),
+    ];
+
+    let mut best_candidate: Option<YouTubeCandidate> = None;
+
+    for (q_idx, query) in queries.iter().enumerate() {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("Download cancelled".to_string());
+        }
+
+        let _ = app_handle.emit("download-log", DownloadLog {
+            id: download_id.to_string(),
+            message: format!("Searching YouTube candidates (pass {}/{})...", q_idx + 1, queries.len()),
+        });
+
+        let mut cmd = if yt_dlp_path.exists() {
+            Command::new(yt_dlp_path)
+        } else {
+            Command::new("yt-dlp")
+        };
+
+        cmd.args(&[
+            "--flat-playlist",
+            "--no-warnings",
+            "--no-check-certificates",
+            "--print",
+            "%(id)s\t%(title)s\t%(uploader)s\t%(duration)s",
+            query,
+        ]);
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+
+        let output = match cmd.output() {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("yt-dlp candidate search execution error: {}", e);
+                continue;
+            }
+        };
+
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("Download cancelled".to_string());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 3 {
+                continue;
+            }
+            let id = parts[0].trim().to_string();
+            if id.is_empty() || id.len() != 11 {
+                continue;
+            }
+            let cand_title = parts[1].trim().to_string();
+            let uploader = parts[2].trim().to_string();
+            let dur = parts.get(3).and_then(|d| d.trim().parse::<f64>().ok());
+
+            let score = score_youtube_candidate(
+                &cand_title,
+                &uploader,
+                dur,
+                title,
+                clean_artist,
+                expected_duration,
+            );
+
+            if let Some(ref current_best) = best_candidate {
+                if score > current_best.score {
+                    best_candidate = Some(YouTubeCandidate {
+                        id,
+                        title: cand_title,
+                        uploader,
+                        duration: dur,
+                        score,
+                    });
+                }
+            } else {
+                best_candidate = Some(YouTubeCandidate {
+                    id,
+                    title: cand_title,
+                    uploader,
+                    duration: dur,
+                    score,
+                });
+            }
+        }
+
+        // If we found a candidate with high confidence (>= 60.0), we can stop querying early!
+        if let Some(ref best) = best_candidate {
+            if best.score >= 60.0 {
+                break;
+            }
+        }
+    }
+
+    if cancelled.load(Ordering::Relaxed) {
+        return Err("Download cancelled".to_string());
+    }
+
+    if let Some(winner) = best_candidate {
+        // Enforce minimum threshold score (>= 20.0) so completely unrelated songs are never picked
+        if winner.score >= 20.0 {
+            let _ = app_handle.emit("download-log", DownloadLog {
+                id: download_id.to_string(),
+                message: format!("Verified audio match: \"{}\" ({})", winner.title, winner.uploader),
+            });
+            return Ok(format!("https://www.youtube.com/watch?v={}", winner.id));
+        } else {
+            eprintln!(
+                "Best candidate rejected due to low confidence: \"{}\" by {} (Score: {:.1})",
+                winner.title, winner.uploader, winner.score
+            );
+        }
+    }
+
+    Err(format!(
+        "No verified audio match found for \"{} - {}\". Aborted to prevent incorrect track download.",
+        clean_artist, title
+    ))
+}
+
 #[tauri::command]
 async fn download_track(
     app_handle: tauri::AppHandle,
@@ -1898,10 +2381,28 @@ async fn download_track(
     track_id: Option<String>,
     genre: Option<String>,
     year: Option<i32>,
+    duration: Option<f64>,
 ) -> Result<String, String> {
     use std::process::{Command, Stdio};
     use std::io::{BufRead, BufReader};
     use tauri::Emitter;
+
+    let download_handle = ActiveDownloadHandle {
+        cancelled: Arc::new(AtomicBool::new(false)),
+        pid: Arc::new(Mutex::new(None)),
+        target_path: Arc::new(Mutex::new(None)),
+    };
+
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        if let Ok(mut map) = state.active_downloads.lock() {
+            map.insert(download_id.clone(), download_handle.clone());
+        }
+    }
+
+    let _guard = ActiveDownloadGuard {
+        app_handle: app_handle.clone(),
+        download_id: download_id.clone(),
+    };
 
     // --- High-Speed JioSaavn Direct Download (320kbps CDN) ---
     let is_jiosaavn = provider.as_deref() == Some("jiosaavn")
@@ -1909,6 +2410,10 @@ async fn download_track(
         || url.as_deref().unwrap_or_default().contains("saavncdn.com");
 
     if is_jiosaavn {
+        if download_handle.cancelled.load(Ordering::Relaxed) {
+            return Err("Download cancelled".to_string());
+        }
+
         let _ = app_handle.emit("download-progress", DownloadProgress {
             id: download_id.clone(),
             progress: 5.0,
@@ -1925,6 +2430,10 @@ async fn download_track(
 
         match resolve_jiosaavn_stream(&client, track_id.as_deref(), &title, &artist, url.as_deref()).await {
             Ok(jio) => {
+                if download_handle.cancelled.load(Ordering::Relaxed) {
+                    return Err("Download cancelled".to_string());
+                }
+
                 let final_title = if title.is_empty() { jio.title } else { title.clone() };
                 let clean_input_artist = clean_artist_name(&artist);
                 let final_artist = if !jio.artist.is_empty() {
@@ -1952,6 +2461,15 @@ async fn download_track(
                 let filename = format!("{} - {}.{}", safe_artist, safe_title, ext);
                 let target_path = PathBuf::from(&music_dir).join(&filename);
 
+                if let Ok(mut tp) = download_handle.target_path.lock() {
+                    *tp = Some(target_path.clone());
+                }
+
+                if download_handle.cancelled.load(Ordering::Relaxed) {
+                    cleanup_target_files(&target_path);
+                    return Err("Download cancelled".to_string());
+                }
+
                 if target_path.exists() {
                     let _ = app_handle.emit("download-progress", DownloadProgress {
                         id: download_id.clone(),
@@ -1961,7 +2479,12 @@ async fn download_track(
                 }
 
                 // Stream audio bytes directly from CDN (maps 10% -> 85%)
-                download_jiosaavn_direct(&app_handle, &client, &jio.cdn_url, &target_path, &download_id).await?;
+                download_jiosaavn_direct(&app_handle, &client, &jio.cdn_url, &target_path, &download_id, download_handle.cancelled.clone()).await?;
+
+                if download_handle.cancelled.load(Ordering::Relaxed) {
+                    cleanup_target_files(&target_path);
+                    return Err("Download cancelled".to_string());
+                }
 
                 let _ = app_handle.emit("download-progress", DownloadProgress {
                     id: download_id.clone(),
@@ -1972,6 +2495,9 @@ async fn download_track(
                     message: "Embedding tags, cover art, and lyrics...".to_string(),
                 });
 
+                let final_genre = if genre.is_some() { genre.clone() } else { jio.genre };
+                let final_year = if year.is_some() { year } else { jio.year };
+
                 // Embed metadata, cover art, and lyrics
                 tag_downloaded_file(
                     &target_path,
@@ -1981,9 +2507,14 @@ async fn download_track(
                     &final_cover,
                     url.as_deref(),
                     provider.as_deref(),
-                    genre.as_deref(),
-                    year,
+                    final_genre.as_deref(),
+                    final_year,
                 ).await;
+
+                if download_handle.cancelled.load(Ordering::Relaxed) {
+                    cleanup_target_files(&target_path);
+                    return Err("Download cancelled".to_string());
+                }
 
                 let _ = app_handle.emit("download-progress", DownloadProgress {
                     id: download_id.clone(),
@@ -1997,6 +2528,9 @@ async fn download_track(
                 return Ok(target_path.to_string_lossy().to_string());
             }
             Err(e) => {
+                if download_handle.cancelled.load(Ordering::Relaxed) {
+                    return Err("Download cancelled".to_string());
+                }
                 let _ = app_handle.emit("download-log", DownloadLog {
                     id: download_id.clone(),
                     message: format!("JioSaavn direct download failed ({}), falling back to extractor...", e),
@@ -2006,6 +2540,10 @@ async fn download_track(
     }
 
     // --- Fast Fallback / Other Providers via Optimized yt-dlp ---
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        return Err("Download cancelled".to_string());
+    }
+
     let fmt = format.unwrap_or_else(|| "mp3".to_string());
     let is_video = fmt == "mp4";
     let ipv = if ip_version.unwrap_or_default() == "ipv6" { "-6" } else { "-4" };
@@ -2017,6 +2555,15 @@ async fn download_track(
     let ext = if is_video { "mp4" } else { "mp3" };
     let filename = format!("{} - {}.{}", safe_artist, safe_title, ext);
     let target_path = PathBuf::from(&music_dir).join(&filename);
+
+    if let Ok(mut tp) = download_handle.target_path.lock() {
+        *tp = Some(target_path.clone());
+    }
+
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        cleanup_target_files(&target_path);
+        return Err("Download cancelled".to_string());
+    }
 
     if target_path.exists() {
         let _ = app_handle.emit("download-progress", DownloadProgress {
@@ -2035,20 +2582,42 @@ async fn download_track(
         message: format!("Searching audio source for \"{} - {}\"...", search_artist, title),
     });
 
-    // Determine query: If URL is an iTunes / Apple Music link (or not a direct stream), search YouTube for best audio match
-    let query = if let Some(ref u) = url {
+    let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
+    let ffmpeg_path = get_ffmpeg_path(&app_handle).await;
+
+    // Determine query: If URL is already a direct YouTube / SoundCloud stream link, use it directly.
+    // Otherwise, perform intelligent multi-candidate scoring and duration verification!
+    let stream_url = if let Some(ref u) = url {
         if u.contains("youtube.com") || u.contains("youtu.be") || u.contains("soundcloud.com") {
             u.clone()
         } else {
-            format!("ytsearch1:{} {} official audio", search_artist, title)
+            resolve_exact_youtube_stream(
+                &yt_dlp_path,
+                &search_artist,
+                &title,
+                duration,
+                &app_handle,
+                &download_id,
+                download_handle.cancelled.clone(),
+            ).await?
         }
     } else {
-        format!("ytsearch1:{} {} official audio", search_artist, title)
+        resolve_exact_youtube_stream(
+            &yt_dlp_path,
+            &search_artist,
+            &title,
+            duration,
+            &app_handle,
+            &download_id,
+            download_handle.cancelled.clone(),
+        ).await?
     };
 
-    let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
-    let ffmpeg_path = get_ffmpeg_path(&app_handle).await;
-    
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        cleanup_target_files(&target_path);
+        return Err("Download cancelled".to_string());
+    }
+
     let mut args = vec![
         ipv.to_string(),
         "--no-cache-dir".to_string(),
@@ -2093,7 +2662,7 @@ async fn download_track(
         args.push(ffmpeg_path.to_str().unwrap().to_string());
     }
 
-    args.push(query);
+    args.push(stream_url);
 
     let mut cmd = if yt_dlp_path.exists() {
         Command::new(&yt_dlp_path)
@@ -2117,6 +2686,17 @@ async fn download_track(
     });
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn download process: {}", e))?;
+    let child_pid = child.id();
+    if let Ok(mut pid_guard) = download_handle.pid.lock() {
+        *pid_guard = Some(child_pid);
+    }
+
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        kill_process(child_pid);
+        cleanup_target_files(&target_path);
+        return Err("Download cancelled".to_string());
+    }
+
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
@@ -2141,6 +2721,13 @@ async fn download_track(
     let mut current_progress = 12.0;
     let reader = BufReader::new(stdout);
     for line in reader.lines().flatten() {
+        if download_handle.cancelled.load(Ordering::Relaxed) {
+            kill_process(child_pid);
+            cleanup_target_files(&target_path);
+            let _ = err_thread.join();
+            return Err("Download cancelled".to_string());
+        }
+
         let _ = app_handle.emit("download-log", DownloadLog {
             id: download_id.clone(),
             message: line.clone(),
@@ -2182,7 +2769,17 @@ async fn download_track(
     let status = child.wait().map_err(|e| format!("Failed to wait for download process: {}", e))?;
     let stderr_output = err_thread.join().unwrap_or_default();
 
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        cleanup_target_files(&target_path);
+        return Err("Download cancelled".to_string());
+    }
+
     if !status.success() {
+        if download_handle.cancelled.load(Ordering::Relaxed) {
+            cleanup_target_files(&target_path);
+            return Err("Download cancelled".to_string());
+        }
+
         let err_detail = if !stderr_output.is_empty() {
             let error_lines: Vec<&str> = stderr_output
                 .lines()
@@ -2197,6 +2794,11 @@ async fn download_track(
             "Download process exited with error".to_string()
         };
         return Err(format!("Download failed: {}", err_detail));
+    }
+
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        cleanup_target_files(&target_path);
+        return Err("Download cancelled".to_string());
     }
 
     // --- Automatic Metadata Tagging ---
@@ -2221,6 +2823,11 @@ async fn download_track(
         year,
     ).await;
 
+    if download_handle.cancelled.load(Ordering::Relaxed) {
+        cleanup_target_files(&target_path);
+        return Err("Download cancelled".to_string());
+    }
+
     let _ = app_handle.emit("download-progress", DownloadProgress {
         id: download_id.clone(),
         progress: 100.0,
@@ -2231,6 +2838,45 @@ async fn download_track(
     });
 
     Ok(target_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn cancel_download(
+    app_handle: tauri::AppHandle,
+    download_id: String,
+) -> Result<(), String> {
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        let handle_opt = {
+            if let Ok(mut map) = state.active_downloads.lock() {
+                map.remove(&download_id)
+            } else {
+                None
+            }
+        };
+
+        if let Some(handle) = handle_opt {
+            handle.cancelled.store(true, Ordering::SeqCst);
+
+            if let Ok(pid_opt) = handle.pid.lock() {
+                if let Some(pid) = *pid_opt {
+                    kill_process(pid);
+                }
+            }
+
+            if let Ok(tp_opt) = handle.target_path.lock() {
+                if let Some(ref path) = *tp_opt {
+                    cleanup_target_files(path);
+                }
+            }
+        }
+    }
+
+    let _ = app_handle.emit("download-log", DownloadLog {
+        id: download_id,
+        message: "Download cancelled by user".to_string(),
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -2637,7 +3283,10 @@ fn set_tray_enabled(
     app: tauri::AppHandle,
     enabled: bool,
 ) -> Result<(), String> {
-    state.tray_enabled.store(enabled, Ordering::Relaxed);
+    let prev = state.tray_enabled.swap(enabled, Ordering::SeqCst);
+    if prev == enabled {
+        return Ok(());
+    }
     if let Some(tray) = app.tray_by_id("main_tray") {
         let _ = tray.set_visible(enabled);
     }
@@ -3728,6 +4377,277 @@ fn force_quit(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SystemAudioDevice {
+    pub id: String,
+    pub name: String,
+    pub label: String,
+}
+
+#[tauri::command]
+fn get_system_audio_devices() -> Result<Vec<SystemAudioDevice>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let output = std::process::Command::new("reg")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["query", r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render", "/s", "/v", "DeviceState"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut active_guids = Vec::new();
+        let mut current_guid = None;
+
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with(r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\{") {
+                if let Some(start) = trimmed.find('{') {
+                    if let Some(end) = trimmed.find('}') {
+                        current_guid = Some(trimmed[start..=end].to_string());
+                    }
+                }
+            } else if trimmed.starts_with("DeviceState") && (trimmed.ends_with("0x1") || trimmed.ends_with("0x00000001")) {
+                if let Some(guid) = current_guid.take() {
+                    active_guids.push(guid);
+                }
+            }
+        }
+
+        let mut devices = Vec::new();
+        for guid in active_guids {
+            let key = format!(r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\{}\Properties", guid);
+
+            let name_out = std::process::Command::new("reg")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["query", &key, "/v", "{a45c254e-df1c-4efd-8020-67d146a850e0},2"])
+                .output();
+
+            let friendly_name = if let Ok(ref out) = name_out {
+                let s = String::from_utf8_lossy(&out.stdout);
+                s.lines()
+                    .find(|l| l.contains("REG_SZ"))
+                    .and_then(|l| l.split("REG_SZ").nth(1))
+                    .map(|v| v.trim().to_string())
+                    .unwrap_or_else(|| "Audio Device".to_string())
+            } else {
+                "Audio Device".to_string()
+            };
+
+            let desc_out = std::process::Command::new("reg")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["query", &key, "/v", "{b3f8fa53-0004-438e-9003-51a46e139bfc},6"])
+                .output();
+
+            let adapter_desc = if let Ok(ref out) = desc_out {
+                let s = String::from_utf8_lossy(&out.stdout);
+                s.lines()
+                    .find(|l| l.contains("REG_SZ"))
+                    .and_then(|l| l.split("REG_SZ").nth(1))
+                    .map(|v| v.trim().to_string())
+            } else {
+                None
+            };
+
+            let label = match adapter_desc {
+                Some(ref d) if !d.is_empty() && d != &friendly_name => {
+                    format!("{} ({})", friendly_name, d)
+                }
+                _ => friendly_name.clone(),
+            };
+
+            devices.push(SystemAudioDevice {
+                id: format!("{{0.0.0.00000000}}.{}", guid),
+                name: friendly_name,
+                label,
+            });
+        }
+
+        return Ok(devices);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+#[tauri::command]
+fn set_system_audio_device(device_id: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // Collect PID of the main Mewsic process and all child/descendant processes (WebView2 renderers & audio)
+        let root_pid = std::process::id();
+        let mut pids = vec![root_pid];
+
+        let mut sys = System::new();
+        sys.refresh_processes();
+
+        let mut added = true;
+        while added {
+            added = false;
+            for (p_pid, process) in sys.processes() {
+                let u_pid = p_pid.as_u32();
+                if !pids.contains(&u_pid) {
+                    if let Some(parent) = process.parent() {
+                        if pids.contains(&parent.as_u32()) {
+                            pids.push(u_pid);
+                            added = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        let pids_list = pids
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        // Format device ID according to Windows Audio Policy requirements:
+        // \\?\SWD#MMDEVAPI#{endpoint_guid}#{e6327cad-dcec-4949-ae8a-991e976a79d2}
+        let trimmed = device_id.trim();
+        let target_id = if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("default") {
+            String::new()
+        } else if trimmed.starts_with(r"\\?\SWD#MMDEVAPI#") {
+            trimmed.to_string()
+        } else if trimmed.starts_with("{0.0.0.00000000}.") {
+            format!(r"\\?\SWD#MMDEVAPI#{}#{{e6327cad-dcec-4949-ae8a-991e976a79d2}}", trimmed)
+        } else if trimmed.starts_with('{') {
+            format!(r"\\?\SWD#MMDEVAPI#{{0.0.0.00000000}}.{}#{{e6327cad-dcec-4949-ae8a-991e976a79d2}}", trimmed)
+        } else {
+            trimmed.to_string()
+        };
+
+        let safe_target_id = target_id.replace('\'', "''");
+
+        let script = format!(
+            r#"$Source = @'
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("ab3d4648-e242-459f-b02f-541c70306324")]
+[InterfaceType(ComInterfaceType.InterfaceIsIInspectable)]
+public interface IAudioPolicyConfigFactoryVariantFor21H2 {{
+    int m1(); int m2(); int m3(); int m4(); int m5();
+    int m6(); int m7(); int m8(); int m9(); int m10();
+    int m11(); int m12(); int m13(); int m14(); int m15();
+    int m16(); int m17(); int m18(); int m19();
+    [PreserveSig] int SetPersistedDefaultAudioEndpoint(uint processId, int flow, int role, IntPtr deviceId);
+    [PreserveSig] int GetPersistedDefaultAudioEndpoint(uint processId, int flow, int role, out IntPtr deviceId);
+    [PreserveSig] int ClearAllPersistedApplicationDefaultEndpoints();
+}}
+
+[Guid("2a59116d-6c4f-45e0-a74f-707e3fef9258")]
+[InterfaceType(ComInterfaceType.InterfaceIsIInspectable)]
+public interface IAudioPolicyConfigFactoryVariantForDownlevel {{
+    int m1(); int m2(); int m3(); int m4(); int m5();
+    int m6(); int m7(); int m8(); int m9(); int m10();
+    int m11(); int m12(); int m13(); int m14(); int m15();
+    int m16(); int m17(); int m18(); int m19();
+    [PreserveSig] int SetPersistedDefaultAudioEndpoint(uint processId, int flow, int role, IntPtr deviceId);
+    [PreserveSig] int GetPersistedDefaultAudioEndpoint(uint processId, int flow, int role, out IntPtr deviceId);
+    [PreserveSig] int ClearAllPersistedApplicationDefaultEndpoints();
+}}
+
+public class AudioRouter {{
+    [DllImport("combase.dll")]
+    public static extern int WindowsCreateString([MarshalAs(UnmanagedType.LPWStr)] string sourceString, int length, out IntPtr hstring);
+
+    [DllImport("combase.dll")]
+    public static extern int WindowsDeleteString(IntPtr hstring);
+
+    [DllImport("combase.dll")]
+    public static extern int RoGetActivationFactory(IntPtr activatableClassId, ref Guid iid, out IntPtr factory);
+
+    public static int RouteProcesses(uint[] pids, string devId) {{
+        string className = "Windows.Media.Internal.AudioPolicyConfig";
+        IntPtr hClass = IntPtr.Zero;
+        int hr = WindowsCreateString(className, className.Length, out hClass);
+        if (hr != 0) return hr;
+
+        IntPtr factoryPtr = IntPtr.Zero;
+        Guid iid21H2 = new Guid("ab3d4648-e242-459f-b02f-541c70306324");
+        hr = RoGetActivationFactory(hClass, ref iid21H2, out factoryPtr);
+        bool isDownlevel = false;
+
+        if (hr != 0 || factoryPtr == IntPtr.Zero) {{
+            Guid iidDownlevel = new Guid("2a59116d-6c4f-45e0-a74f-707e3fef9258");
+            hr = RoGetActivationFactory(hClass, ref iidDownlevel, out factoryPtr);
+            isDownlevel = true;
+        }}
+        WindowsDeleteString(hClass);
+
+        if (hr != 0 || factoryPtr == IntPtr.Zero) return hr;
+
+        IntPtr hDev = IntPtr.Zero;
+        if (!string.IsNullOrEmpty(devId) && devId != "default") {{
+            WindowsCreateString(devId, devId.Length, out hDev);
+        }}
+
+        try {{
+            foreach (uint pid in pids) {{
+                if (isDownlevel) {{
+                    var f = (IAudioPolicyConfigFactoryVariantForDownlevel)Marshal.GetObjectForIUnknown(factoryPtr);
+                    f.SetPersistedDefaultAudioEndpoint(pid, 0, 0, hDev);
+                    f.SetPersistedDefaultAudioEndpoint(pid, 0, 1, hDev);
+                    f.SetPersistedDefaultAudioEndpoint(pid, 0, 2, hDev);
+                }} else {{
+                    var f = (IAudioPolicyConfigFactoryVariantFor21H2)Marshal.GetObjectForIUnknown(factoryPtr);
+                    f.SetPersistedDefaultAudioEndpoint(pid, 0, 0, hDev);
+                    f.SetPersistedDefaultAudioEndpoint(pid, 0, 1, hDev);
+                    f.SetPersistedDefaultAudioEndpoint(pid, 0, 2, hDev);
+                }}
+            }}
+            return 0;
+        }} finally {{
+            if (hDev != IntPtr.Zero) WindowsDeleteString(hDev);
+            Marshal.Release(factoryPtr);
+        }}
+    }}
+}}
+'@;
+Add-Type -TypeDefinition $Source -ErrorAction SilentlyContinue;
+[AudioRouter]::RouteProcesses(@({}), '{}');
+"#,
+            pids_list,
+            safe_target_id
+        );
+
+        let output = std::process::Command::new("powershell")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Failed to switch audio device: {}", err));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_sound_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("explorer")
+            .creation_flags(CREATE_NO_WINDOW)
+            .arg("ms-settings:sound")
+            .spawn();
+    }
+    Ok(())
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
     {
@@ -3784,6 +4704,7 @@ fn main() {
         .manage(AppState {
             tray_enabled: AtomicBool::new(true),
             dev_mode_enabled: AtomicBool::new(false),
+            active_downloads: Mutex::new(std::collections::HashMap::new()),
         })
         .manage(HarbourState {
             token: Mutex::new(None),
@@ -3828,7 +4749,7 @@ fn main() {
             let menu = Menu::with_items(app, &[&show_i, &quit_i]).unwrap();
             let icon = app.default_window_icon().unwrap().clone();
 
-            let tray = TrayIconBuilder::with_id("main_tray")
+            let _tray = TrayIconBuilder::with_id("main_tray")
                 .icon(icon.clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -3857,8 +4778,6 @@ fn main() {
                 })
                 .build(app)
                 .unwrap();
-
-            let _ = tray.set_visible(true); // default to true
 
             // Force the window icon for the main window (helps with dock icons on some Linux DEs)
             if let Some(window) = app.get_webview_window("main") {
@@ -3954,6 +4873,7 @@ fn main() {
             import_playlist,
             harbour_search,
             download_track,
+            cancel_download,
             ensure_dependencies,
             fetch_track_metadata,
             update_media_metadata,
@@ -3982,6 +4902,9 @@ fn main() {
             start_oauth_server,
             fetch_spotify_playlist,
             import_spotify_playlist,
+            get_system_audio_devices,
+            set_system_audio_device,
+            open_sound_settings,
         ])
         .on_window_event(|window, event| {
             match event {

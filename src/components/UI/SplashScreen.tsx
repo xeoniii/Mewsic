@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Music2 } from "lucide-react";
 import { useStore } from "../../store";
 
 export function SplashScreen() {
@@ -90,21 +89,22 @@ export function SplashScreen() {
 
       {/* Main Brand Composition Container */}
       <div className="relative z-10 flex items-center justify-center">
-        {/* The Mewsic Logo Badge */}
-        <div
-          className="flex items-center justify-center rounded-2xl bg-accent flex-shrink-0"
+        {/* The Mewsic Logo */}
+        <img
+          src="/icon.png"
+          alt="Mewsic Logo"
+          draggable={false}
+          className="flex-shrink-0 object-contain select-none pointer-events-none"
           style={{
             width: "60px",
             height: "60px",
             transform: isSlide ? "translateX(-14px)" : "translateX(0px)",
-            boxShadow: isSlide
-              ? "0 0 32px var(--accent-glow), 0 0 12px var(--accent)"
-              : "0 0 16px var(--accent-glow)",
-            transition: `transform ${slideDuration} ${slideCurve}, box-shadow ${slideDuration} ${slideCurve}`,
+            filter: isSlide
+              ? "drop-shadow(0 0 24px var(--accent-glow)) drop-shadow(0 8px 16px rgba(0, 0, 0, 0.35))"
+              : "drop-shadow(0 0 12px var(--accent-glow))",
+            transition: `transform ${slideDuration} ${slideCurve}, filter ${slideDuration} ${slideCurve}`,
           }}
-        >
-          <Music2 size={32} color="#000" strokeWidth={2.6} className="drop-shadow-sm" />
-        </div>
+        />
 
         {/* Overflow Container for the Word "Mewsic" Sliding Right */}
         <div

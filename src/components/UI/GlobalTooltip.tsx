@@ -1,15 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+
+interface TooltipTarget {
+  text: string;
+  rect: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  };
+}
 
 export function GlobalTooltip() {
-  const [tooltip, setTooltip] = useState<{
-    text: string;
-    x: number;
-    y: number;
-    positionAbove: boolean;
-  } | null>(null);
+  const [target, setTarget] = useState<TooltipTarget | null>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number; visible: boolean }>({
+    left: 0,
+    top: 0,
+    visible: false,
+  });
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
+  // 1. Setup a MutationObserver to globally intercept and convert ALL `title` attributes to `data-tooltip`
   useEffect(() => {
-    // 1. Setup a MutationObserver to globally intercept and convert ALL `title` attributes to `data-tooltip`
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList') {
@@ -67,26 +80,11 @@ export function GlobalTooltip() {
     let currentText: string | null = null;
     let isVisible = false;
 
-    const computeCoords = (el: HTMLElement) => {
-      const zoomRatio = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom-ratio')) || 1;
-      const rect = el.getBoundingClientRect();
-      const centerX = (rect.left + rect.width / 2) / zoomRatio;
-      const topY = rect.top / zoomRatio;
-      const bottomY = rect.bottom / zoomRatio;
-      const maxW = (window.innerWidth / zoomRatio);
-
-      const positionAbove = rect.top > 45;
-      const x = Math.max(24, Math.min(maxW - 24, centerX));
-      const y = positionAbove ? topY - 8 : bottomY + 8;
-
-      return { x, y, positionAbove };
-    };
-
     const handleMouseMove = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target || !target.closest) return;
+      const mouseTarget = e.target as HTMLElement;
+      if (!mouseTarget || !mouseTarget.closest) return;
 
-      const el = target.closest('[data-tooltip]') as HTMLElement;
+      const el = mouseTarget.closest('[data-tooltip]') as HTMLElement;
 
       if (el) {
         const text = el.getAttribute('data-tooltip');
@@ -96,28 +94,52 @@ export function GlobalTooltip() {
             currentEl = el;
             currentText = text;
 
+            const r = el.getBoundingClientRect();
+            const targetData: TooltipTarget = {
+              text,
+              rect: {
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
+                width: r.width,
+                height: r.height,
+              },
+            };
+
             if (isVisible) {
-              const { x, y, positionAbove } = computeCoords(el);
-              setTooltip({ text, x, y, positionAbove });
+              setTarget(targetData);
             } else {
               clearTimeout(timeout);
               timeout = setTimeout(() => {
                 isVisible = true;
                 if (currentEl && currentText) {
-                  const { x, y, positionAbove } = computeCoords(currentEl);
-                  setTooltip({ text: currentText, x, y, positionAbove });
+                  const latestRect = currentEl.getBoundingClientRect();
+                  setTarget({
+                    text: currentText,
+                    rect: {
+                      left: latestRect.left,
+                      top: latestRect.top,
+                      right: latestRect.right,
+                      bottom: latestRect.bottom,
+                      width: latestRect.width,
+                      height: latestRect.height,
+                    },
+                  });
                 }
               }, 250);
             }
           }
+          return;
         }
-      } else {
-        clearTimeout(timeout);
-        isVisible = false;
-        currentEl = null;
-        currentText = null;
-        setTooltip(null);
       }
+
+      clearTimeout(timeout);
+      isVisible = false;
+      currentEl = null;
+      currentText = null;
+      setTarget(null);
+      setCoords((prev) => ({ ...prev, visible: false }));
     };
 
     const handleMouseLeave = () => {
@@ -125,13 +147,15 @@ export function GlobalTooltip() {
       isVisible = false;
       currentEl = null;
       currentText = null;
-      setTooltip(null);
+      setTarget(null);
+      setCoords((prev) => ({ ...prev, visible: false }));
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseleave', handleMouseLeave);
     window.addEventListener('mousedown', handleMouseLeave);
     window.addEventListener('scroll', handleMouseLeave, true);
+    window.addEventListener('resize', handleMouseLeave);
 
     return () => {
       observer.disconnect();
@@ -139,23 +163,63 @@ export function GlobalTooltip() {
       document.removeEventListener('mouseleave', handleMouseLeave);
       window.removeEventListener('mousedown', handleMouseLeave);
       window.removeEventListener('scroll', handleMouseLeave, true);
+      window.removeEventListener('resize', handleMouseLeave);
       clearTimeout(timeout);
     };
   }, []);
 
-  if (!tooltip) return null;
+  // Compute exact coordinates clamped strictly within all window boundaries
+  useLayoutEffect(() => {
+    if (!target || !tooltipRef.current) return;
+
+    const el = tooltipRef.current;
+    const ttRect = el.getBoundingClientRect();
+    const zoomRatio = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom-ratio')) || 1;
+    const winW = window.innerWidth / zoomRatio;
+    const winH = window.innerHeight / zoomRatio;
+
+    const tLeft = target.rect.left / zoomRatio;
+    const tRight = target.rect.right / zoomRatio;
+    const tTop = target.rect.top / zoomRatio;
+    const tBottom = target.rect.bottom / zoomRatio;
+    const centerX = (tLeft + tRight) / 2;
+
+    const ttW = ttRect.width / zoomRatio;
+    const ttH = ttRect.height / zoomRatio;
+
+    const PADDING = 8;
+    // Strictly clamp horizontally so it never clips past left or right borders
+    let left = centerX - ttW / 2;
+    left = Math.max(PADDING, Math.min(winW - ttW - PADDING, left));
+
+    // Vertical positioning: Title bar is ~36px tall, clamp so it doesn't clip top or bottom
+    const TOP_SAFE_MARGIN = 36;
+    let top: number;
+    if (tTop - ttH - PADDING >= TOP_SAFE_MARGIN) {
+      top = tTop - ttH - PADDING;
+    } else if (tBottom + ttH + PADDING <= winH - PADDING) {
+      top = tBottom + PADDING;
+    } else {
+      top = Math.max(TOP_SAFE_MARGIN, Math.min(winH - ttH - PADDING, tTop - ttH - PADDING));
+    }
+
+    setCoords({ left, top, visible: true });
+  }, [target]);
+
+  if (!target) return null;
 
   return (
     <div
-      key={tooltip.text} // Retrigger animation if text changes
-      className="fixed z-[10000] pointer-events-none px-2.5 py-1 bg-surface-overlay border border-border-subtle rounded-lg shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-[10px] font-black uppercase tracking-wider text-text-primary whitespace-nowrap animate-tooltip"
+      ref={tooltipRef}
+      key={target.text} // Retrigger animation if text changes
+      className="fixed z-[10000] pointer-events-none px-2.5 py-1 bg-surface-overlay border border-border-subtle rounded-lg shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-[10px] font-black uppercase tracking-wider text-text-primary whitespace-nowrap max-w-[calc(100vw-24px)] truncate animate-tooltip"
       style={{
-        left: tooltip.x,
-        top: tooltip.y,
-        transform: `translate(-50%, ${tooltip.positionAbove ? '-100%' : '0'})`,
+        left: coords.left,
+        top: coords.top,
+        opacity: coords.visible ? 1 : 0,
       }}
     >
-      {tooltip.text}
+      {target.text}
     </div>
   );
 }

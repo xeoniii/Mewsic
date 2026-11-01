@@ -26,7 +26,7 @@ import { useSmoothScroll } from "../../hooks/useSmoothScroll";
 import { useDisplayData } from "../../hooks/useDisplayData";
 import { useLibrary } from "../../hooks/useLibrary";
 import { formatDuration } from "../../utils/helpers";
-import { deleteTrack } from "../../utils/tauriApi";
+import { deleteTrack, cancelDownload } from "../../utils/tauriApi";
 import {
   getSimilarArtists,
   filterAndDiversifyRecommendations,
@@ -246,6 +246,45 @@ export function HarbourView() {
     return set;
   }, [displayTracks]);
 
+  // Check if track is currently in the user's library
+  const isTrackSavedOnDisk = useCallback(
+    (item: DownloadHistoryItem) => {
+      if (item.status === "deleted") return false;
+      if (item.filePath) {
+        const found = displayTracks.some((t) => t.filePath === item.filePath);
+        if (found) return true;
+      }
+      const itemTitle = item.title.toLowerCase().trim();
+      const itemArtist = item.artist.toLowerCase().trim();
+      return displayTracks.some((t) => {
+        const tTitle = t.title.toLowerCase().trim();
+        const tArtist = t.artist.toLowerCase().trim();
+        return (
+          (tTitle === itemTitle && tArtist === itemArtist) ||
+          (tTitle.includes(itemTitle) && tArtist === itemArtist) ||
+          (itemTitle.includes(tTitle) && tArtist === itemArtist)
+        );
+      });
+    },
+    [displayTracks]
+  );
+
+  // Reconcile stuck downloads against tracks already saved on disk in library
+  useEffect(() => {
+    if (displayTracks.length === 0) return;
+    setDownloadHistory((prev) => {
+      let changed = false;
+      const updated = prev.map((item) => {
+        if (item.status === "downloading" && isTrackSavedOnDisk(item)) {
+          changed = true;
+          return { ...item, status: "done" as const, progress: 100 };
+        }
+        return item;
+      });
+      return changed ? updated : prev;
+    });
+  }, [displayTracks, isTrackSavedOnDisk]);
+
   // Compute top artist seeds based on total listen duration + recency + FAVORITES!
   const topArtists = useMemo(() => {
     const scores: Record<string, number> = {};
@@ -329,9 +368,14 @@ export function HarbourView() {
     if (!hasDownloading) return;
 
     const interval = setInterval(() => {
-      setDownloadHistory((prev) =>
-        prev.map((t) => {
+      setDownloadHistory((prev) => {
+        let changed = false;
+        const next = prev.map((t) => {
           if (t.status !== "downloading") return t;
+          if (isTrackSavedOnDisk(t)) {
+            changed = true;
+            return { ...t, status: "done" as const, progress: 100 };
+          }
           const current = t.progress || 6;
           if (current < 92) {
             const step = current < 25 ? 0.8 : current < 60 ? 0.5 : 0.25;
@@ -341,15 +385,17 @@ export function HarbourView() {
               message: `Downloading... ${nextProgress.toFixed(0)}%`,
               loading: true,
             });
+            changed = true;
             return { ...t, progress: nextProgress };
           }
           return t;
-        })
-      );
+        });
+        return changed ? next : prev;
+      });
     }, 250);
 
     return () => clearInterval(interval);
-  }, [downloadHistory, updateNotification]);
+  }, [downloadHistory, updateNotification, isTrackSavedOnDisk]);
 
   // ── 1. Fetch Personalized Taste-Based Recommendations with Similar Artists ──
   const fetchPersonalRecommendations = useCallback(
@@ -562,23 +608,6 @@ export function HarbourView() {
     [setQueue, setIsPlaying]
   );
 
-  // Check if track is currently in the user's library
-  const isTrackSavedOnDisk = useCallback(
-    (item: DownloadHistoryItem) => {
-      if (item.status === "deleted") return false;
-      if (item.filePath) {
-        const found = displayTracks.some((t) => t.filePath === item.filePath);
-        if (found) return true;
-      }
-      return displayTracks.some(
-        (t) =>
-          t.title.toLowerCase().trim() === item.title.toLowerCase().trim() &&
-          t.artist.toLowerCase().trim() === item.artist.toLowerCase().trim()
-      );
-    },
-    [displayTracks]
-  );
-
   // Delete downloaded track from disk and library, keeping record in history with restore option
   const handleDeleteDownloadedTrack = useCallback(
     async (item: DownloadHistoryItem) => {
@@ -727,11 +756,15 @@ export function HarbourView() {
           trackId: track.id,
           genre: track.genre,
           year: track.year,
+          duration: track.duration,
         });
 
         setDownloadHistory((prev) =>
           prev.map((t) =>
-            t.id === notifId
+            t.id === notifId ||
+            t.trackId === track.id ||
+            (t.title.toLowerCase().trim() === track.title.toLowerCase().trim() &&
+              t.artist.toLowerCase().trim() === track.artist.toLowerCase().trim())
               ? { ...t, progress: 100, status: "done", filePath: savedFilePath }
               : t
           )
@@ -749,6 +782,12 @@ export function HarbourView() {
         rescanDirectory();
       } catch (err: any) {
         console.error("Download failed:", err);
+        const errMsg = err?.toString() || "";
+        if (errMsg.toLowerCase().includes("cancel")) {
+          // Download was cancelled by user; ensure clean removal
+          setDownloadHistory((prev) => prev.filter((t) => t.id !== notifId));
+          return;
+        }
         setDownloadHistory((prev) =>
           prev.map((t) => (t.id === notifId ? { ...t, status: "error" } : t))
         );
@@ -802,6 +841,52 @@ export function HarbourView() {
       handleDownloadTrack(pseudoTrack, item.provider);
     },
     [handleDownloadTrack]
+  );
+
+  // Cancel ongoing download transfer immediately (kills backend process & removes partial files)
+  const handleCancelDownload = useCallback(
+    async (item: DownloadHistoryItem) => {
+      try {
+        await cancelDownload(item.id);
+      } catch (e) {
+        console.warn("Failed to cancel download in backend:", e);
+      }
+
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.trackId);
+        return next;
+      });
+
+      setDownloadHistory((prev) => prev.filter((h) => h.id !== item.id));
+
+      updateNotification(item.id, {
+        message: `Cancelled download: "${item.title}"`,
+        type: "info",
+        loading: false,
+        progress: undefined,
+      });
+      setTimeout(() => removeNotification(item.id), 2000);
+    },
+    [updateNotification, removeNotification]
+  );
+
+  const handleCancelTrackCard = useCallback(
+    (track: HarbourSearchResult) => {
+      const activeItem = downloadHistory.find(
+        (t) => t.trackId === track.id && t.status === "downloading"
+      );
+      if (activeItem) {
+        handleCancelDownload(activeItem);
+      } else {
+        setDownloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(track.id);
+          return next;
+        });
+      }
+    },
+    [downloadHistory, handleCancelDownload]
   );
 
 
@@ -945,6 +1030,7 @@ export function HarbourView() {
                     onPlayPreview={togglePreview}
                     onPlayInPlayer={handlePlayInPlayer}
                     onDownload={handleDownloadTrack}
+                    onCancel={handleCancelTrackCard}
                     isPlayingPreview={playingTrackId === track.id}
                     isDownloading={downloadingIds.has(track.id)}
                     isDownloaded={
@@ -1005,6 +1091,7 @@ export function HarbourView() {
                       onPlayPreview={togglePreview}
                       onPlayInPlayer={handlePlayInPlayer}
                       onDownload={handleDownloadTrack}
+                      onCancel={handleCancelTrackCard}
                       isPlayingPreview={playingTrackId === track.id}
                       isDownloading={downloadingIds.has(track.id)}
                       isDownloaded={
@@ -1051,8 +1138,9 @@ export function HarbourView() {
             {downloadHistory.length > 0 ? (
               <div className="flex flex-col gap-2.5">
                 {downloadHistory.map((item) => {
-                  const isDownloading = item.status === "downloading";
-                  const isDeleted = item.status === "deleted" || (!isDownloading && !isTrackSavedOnDisk(item));
+                  const isSavedOnDisk = isTrackSavedOnDisk(item);
+                  const isDownloading = item.status === "downloading" && !isSavedOnDisk;
+                  const isDeleted = item.status === "deleted" || (!isDownloading && !isSavedOnDisk);
                   const isSaved = !isDownloading && !isDeleted;
 
                   return (
@@ -1119,11 +1207,20 @@ export function HarbourView() {
                       {/* Right Side: Progress Bar or Actions */}
                       <div className="flex items-center gap-2 shrink-0">
                         {isDownloading ? (
-                          <div className="w-28 sm:w-36 h-2 bg-surface-raised rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-accent transition-all duration-300"
-                              style={{ width: `${item.progress || 0}%` }}
-                            />
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 sm:w-32 h-2 bg-surface-raised rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-accent transition-all duration-300"
+                                style={{ width: `${item.progress || 0}%` }}
+                              />
+                            </div>
+                            <button
+                              onClick={() => handleCancelDownload(item)}
+                              className="w-8 h-8 rounded-xl hover:bg-red-500/10 text-text-muted hover:text-red-400 flex items-center justify-center transition-colors shrink-0"
+                              title="Cancel download"
+                            >
+                              <X size={15} />
+                            </button>
                           </div>
                         ) : isSaved ? (
                           <div className="flex items-center gap-1">
@@ -1204,6 +1301,7 @@ interface HarbourTrackCardProps {
   onPlayPreview: (t: HarbourSearchResult) => void;
   onPlayInPlayer: (t: HarbourSearchResult) => void;
   onDownload: (t: HarbourSearchResult) => void;
+  onCancel?: (t: HarbourSearchResult) => void;
   isPlayingPreview: boolean;
   isDownloading: boolean;
   isDownloaded: boolean;
@@ -1214,6 +1312,7 @@ function HarbourTrackCard({
   onPlayPreview,
   onPlayInPlayer,
   onDownload,
+  onCancel,
   isPlayingPreview,
   isDownloading,
   isDownloaded,
@@ -1333,29 +1432,36 @@ function HarbourTrackCard({
             <Headphones size={13} />
           </button>
 
-          {/* Download to library */}
+          {/* Download to library / Cancel */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onDownload(track);
+              if (isDownloading) {
+                onCancel?.(track);
+              } else if (!isDownloaded) {
+                onDownload(track);
+              }
             }}
-            disabled={isDownloading || isDownloaded}
+            disabled={isDownloaded}
             className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${isDownloaded
               ? "text-emerald-500 bg-emerald-500/10 cursor-default"
               : isDownloading
-                ? "text-accent bg-accent/10 cursor-wait"
+                ? "text-accent hover:text-red-400 hover:bg-red-500/10 cursor-pointer group/cancel"
                 : "hover:bg-accent hover:text-black text-text-muted"
               }`}
             title={
               isDownloaded
                 ? "Already in library"
                 : isDownloading
-                  ? "Downloading..."
+                  ? "Cancel download"
                   : "Download to library"
             }
           >
             {isDownloading ? (
-              <Loader2 size={13} className="animate-spin" />
+              <span className="flex items-center justify-center">
+                <Loader2 size={13} className="animate-spin group-hover/cancel:hidden" />
+                <X size={13} className="hidden group-hover/cancel:block text-red-400" />
+              </span>
             ) : isDownloaded ? (
               <Check size={13} />
             ) : (

@@ -1,15 +1,271 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Volume2, Zap, Sliders, Radio, Headphones,
-  AlertTriangle, RotateCcw, Activity, Music, Bookmark, Plus, Crosshair
+  AlertTriangle, RotateCcw, Activity, Music, Bookmark, Plus, Crosshair, Speaker, ExternalLink, ChevronDown, Check
 } from "lucide-react";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { ThemedSlider } from "../UI/ThemedSlider";
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
 import { SpatialPanner } from "./SpatialPanner";
+import { setOutputDevice } from "../../utils/audioEngine";
+import { getSystemAudioDevices, setSystemAudioDevice, openSoundSettings } from "../../utils/tauriApi";
 
 // Sub-components mapped to individual store slices to prevent global re-renders
+
+interface AudioOutputDevice {
+  deviceId: string;
+  label: string;
+}
+
+interface OutputDeviceDropdownProps {
+  devices: AudioOutputDevice[];
+  selectedDeviceId: string;
+  selectedDeviceLabel: string;
+  onSelect: (deviceId: string, label: string) => void;
+  disabled?: boolean;
+}
+
+function OutputDeviceDropdown({
+  devices,
+  selectedDeviceId,
+  selectedDeviceLabel,
+  onSelect,
+  disabled,
+}: OutputDeviceDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click (like Harbour ProviderDropdown)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  const allOptions: AudioOutputDevice[] = [
+    { deviceId: "", label: "System Default" },
+    ...devices.filter((d) => d.deviceId !== "" && d.deviceId !== "default"),
+  ];
+
+  const current = allOptions.find((d) => d.deviceId === selectedDeviceId) || {
+    deviceId: selectedDeviceId,
+    label: selectedDeviceLabel || "System Default",
+  };
+
+  return (
+    <div ref={dropdownRef} className="relative shrink-0 flex-1 sm:flex-initial">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        className={`h-10 px-3.5 rounded-xl bg-surface-base border ${
+          isOpen
+            ? "border-accent ring-2 ring-accent/20"
+            : "border-border-subtle hover:border-border-glass"
+        } text-xs font-bold text-text-primary transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm disabled:opacity-50 w-full sm:w-auto min-w-[200px] sm:min-w-[240px] max-w-full sm:max-w-[340px]`}
+        title="Select audio output device"
+      >
+        <div className="flex items-center gap-2 truncate min-w-0">
+          {current.deviceId === "" ? (
+            <Speaker size={14} className="text-accent shrink-0" />
+          ) : (
+            <Headphones size={14} className="text-accent shrink-0" />
+          )}
+          <span className="truncate">{current.label}</span>
+        </div>
+        <ChevronDown
+          size={14}
+          className={`text-text-muted transition-transform duration-200 shrink-0 ${
+            isOpen ? "rotate-180 text-accent" : ""
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full mt-2 right-0 w-64 sm:w-80 bg-surface-overlay/95 border border-border-glass rounded-2xl overflow-hidden shadow-2xl z-50 animate-scale-in p-1.5 backdrop-blur-xl">
+          <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted/70 flex items-center justify-between">
+            <span>Audio Output Device</span>
+            <span className="text-[9px] text-text-muted font-normal lowercase">{allOptions.length} available</span>
+          </div>
+          <div className="max-h-60 overflow-y-auto flex flex-col gap-0.5">
+            {allOptions.map((opt) => {
+              const isSelected = opt.deviceId === selectedDeviceId;
+              return (
+                <button
+                  key={opt.deviceId || "system-default"}
+                  type="button"
+                  onClick={() => {
+                    onSelect(opt.deviceId, opt.label);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs transition-all text-left ${
+                    isSelected
+                      ? "bg-accent/15 text-accent font-bold"
+                      : "text-text-secondary hover:bg-surface-raised hover:text-text-primary font-medium"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate min-w-0">
+                    {opt.deviceId === "" ? (
+                      <Speaker size={13} className={`shrink-0 ${isSelected ? "text-accent" : "opacity-70"}`} />
+                    ) : (
+                      <Headphones size={13} className={`shrink-0 ${isSelected ? "text-accent" : "opacity-70"}`} />
+                    )}
+                    <span className="truncate">{opt.label}</span>
+                  </div>
+                  {isSelected && <Check size={14} className="text-accent shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OutputDeviceCard() {
+  const { outputDeviceId, outputDeviceLabel, setOutputDeviceId } = useStore(
+    useShallow((s) => ({
+      outputDeviceId: s.outputDeviceId ?? "",
+      outputDeviceLabel: s.outputDeviceLabel || "System Default",
+      setOutputDeviceId: s.setOutputDeviceId,
+    }))
+  );
+
+  const [devices, setDevices] = useState<AudioOutputDevice[]>(() => {
+    if (outputDeviceId && outputDeviceId !== "" && outputDeviceLabel && outputDeviceLabel !== "System Default") {
+      return [{ deviceId: outputDeviceId, label: outputDeviceLabel }];
+    }
+    return [];
+  });
+
+  const [isApplying, setIsApplying] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refreshDevices = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // 1. Fetch system audio devices natively from Windows (zero microphone permissions needed!)
+      const sysDevices = await getSystemAudioDevices();
+      if (sysDevices && sysDevices.length > 0) {
+        setDevices(
+          sysDevices.map((d) => ({
+            deviceId: d.id,
+            label: d.label || d.name,
+          }))
+        );
+        return;
+      }
+
+      // 2. Fallback to standard web mediaDevices without requesting any microphone
+      if (navigator.mediaDevices?.enumerateDevices) {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        const outputs = all.filter((d) => d.kind === "audiooutput" && d.deviceId !== "default" && d.deviceId !== "");
+        const labeled = outputs.filter((d) => Boolean(d.label) && !d.label.startsWith("Audio Output"));
+        if (labeled.length > 0) {
+          setDevices(labeled.map((d) => ({ deviceId: d.deviceId, label: d.label })));
+        }
+      }
+    } catch (err) {
+      console.warn("OutputDeviceCard: refreshDevices failed", err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 350);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshDevices();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refreshDevices);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", refreshDevices);
+  }, [refreshDevices]);
+
+  const handleSelect = useCallback(async (deviceId: string, label: string) => {
+    setIsApplying(true);
+    try {
+      if (deviceId.startsWith("{0.0") || deviceId === "" || deviceId === "default") {
+        // Route Mewsic process exclusively via Windows Audio Policy or clear to system default
+        await setSystemAudioDevice(deviceId);
+      }
+      // Update HTMLMediaElement/AudioContext sink (handles standard web deviceIds or resets to default)
+      await setOutputDevice(deviceId).catch(() => {});
+      setOutputDeviceId(deviceId, label);
+    } catch (err) {
+      console.warn("OutputDeviceCard: handleSelect failed", err);
+    } finally {
+      setIsApplying(false);
+    }
+  }, [setOutputDeviceId]);
+
+  const activeDevice = devices.find((d) => d.deviceId === outputDeviceId);
+  const activeLabel = outputDeviceId === ""
+    ? "System Default"
+    : (activeDevice?.label || outputDeviceLabel || "Custom Audio Device");
+
+  return (
+    <div className="p-4 rounded-xl bg-surface-raised border border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-slide-up shadow-sm">
+      {/* Left side: Icon + Title & Active Output description */}
+      <div className="flex items-center gap-3.5 min-w-0">
+        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent flex-shrink-0">
+          <Speaker size={16} />
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className="font-bold text-sm text-text-primary tracking-tight">Output Device</h4>
+            {isApplying && (
+              <div className="w-3.5 h-3.5 rounded-full border-2 border-accent border-t-transparent animate-spin flex-shrink-0" />
+            )}
+          </div>
+          <p className="text-[10px] text-text-muted truncate">
+            Active: <span className="font-semibold text-text-primary">{activeLabel}</span>
+          </p>
+        </div>
+      </div>
+
+      {/* Right side: Refresh Button (to the left of dropdown) + Custom Dropdown */}
+      <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+        {/* Refresh button to the left of the dropdown */}
+        <button
+          id="refresh-output-devices-btn"
+          type="button"
+          onClick={refreshDevices}
+          disabled={isRefreshing}
+          title="Refresh audio output devices"
+          aria-label="Refresh audio output devices"
+          className="w-10 h-10 rounded-xl bg-surface-base hover:bg-white/[0.08] active:scale-95 border border-border-subtle flex items-center justify-center text-text-muted hover:text-accent transition-all disabled:opacity-50 flex-shrink-0 cursor-pointer shadow-sm"
+        >
+          <RotateCcw size={14} className={isRefreshing ? "animate-spin text-accent" : ""} />
+        </button>
+
+        {/* Custom dropdown like Harbour */}
+        <OutputDeviceDropdown
+          devices={devices}
+          selectedDeviceId={outputDeviceId}
+          selectedDeviceLabel={activeLabel}
+          onSelect={handleSelect}
+          disabled={isApplying}
+        />
+
+        {/* Windows Sound settings quick-launcher icon button */}
+        <button
+          id="open-windows-sound-btn"
+          type="button"
+          onClick={() => openSoundSettings()}
+          title="Open Windows Sound Settings"
+          aria-label="Open Windows Sound Settings"
+          className="w-10 h-10 rounded-xl bg-surface-base hover:bg-white/[0.08] active:scale-95 border border-border-subtle flex items-center justify-center text-text-muted hover:text-text-primary transition-all flex-shrink-0 cursor-pointer shadow-sm"
+        >
+          <ExternalLink size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function MasterVolumeCard() {
   const { volume, setVolume } = useStore(useShallow(s => ({ volume: s.volume ?? 0.8, setVolume: s.setVolume })));
@@ -336,6 +592,11 @@ export function AudioView() {
             <BassCard />
             <SpeedCard />
             <BoostCard />
+          </div>
+
+          {/* Output Device Selector */}
+          <div className="animate-slide-up" style={{ animationDelay: '0.25s' }}>
+            <OutputDeviceCard />
           </div>
 
           <div className="p-4 rounded-xl bg-surface-raised border border-border-subtle flex items-center justify-between gap-4 mt-2 animate-slide-up shadow-sm">

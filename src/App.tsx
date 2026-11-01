@@ -274,8 +274,10 @@ export default function App() {
 
   useEffect(() => {
     async function bootstrap() {
-      // Sync initial tray state
-      setTrayEnabled(useStore.getState().trayEnabled).catch(() => {});
+      // Sync initial tray state if disabled (backend already starts with tray active)
+      if (!useStore.getState().trayEnabled) {
+        setTrayEnabled(false).catch(() => {});
+      }
 
       // Sync initial dev mode state with Rust backend to sleep telemetry when not in use
       invoke("set_dev_mode", { enabled: useStore.getState().isDevMode }).catch(() => {});

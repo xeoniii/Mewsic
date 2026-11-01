@@ -233,7 +233,13 @@ export async function clearDiscordRpc(): Promise<void> {
   await invoke("clear_discord_rpc");
 }
 
+let lastTrayEnabledState: boolean | null = null;
+
 export async function setTrayEnabled(enabled: boolean): Promise<void> {
+  if (lastTrayEnabledState === enabled) {
+    return;
+  }
+  lastTrayEnabledState = enabled;
   await invoke("set_tray_enabled", { enabled });
 }
 
@@ -288,9 +294,16 @@ export async function downloadTrack(
   downloadId: string,
   provider?: string,
   url?: string,
-  trackId?: string
+  trackId?: string,
+  genre?: string,
+  year?: number,
+  duration?: number
 ): Promise<string> {
-  return invoke("download_track", { musicDir, title, artist, album, coverArt, downloadId, provider, url, trackId });
+  return invoke("download_track", { musicDir, title, artist, album, coverArt, downloadId, provider, url, trackId, genre, year, duration });
+}
+
+export async function cancelDownload(downloadId: string): Promise<void> {
+  await invoke("cancel_download", { downloadId });
 }
 
 export async function updateMediaMetadata(
@@ -314,3 +327,26 @@ export async function clearMediaControls(): Promise<void> {
 export async function forceQuit(): Promise<void> {
   await invoke("force_quit");
 }
+
+export interface SystemAudioDevice {
+  id: string;
+  name: string;
+  label: string;
+}
+
+export async function getSystemAudioDevices(): Promise<SystemAudioDevice[]> {
+  try {
+    return await invoke<SystemAudioDevice[]>("get_system_audio_devices");
+  } catch (err) {
+    console.warn("getSystemAudioDevices error:", err);
+    return [];
+  }
+}
+
+export async function setSystemAudioDevice(deviceId: string): Promise<void> {
+  await invoke("set_system_audio_device", { deviceId });
+}
+
+export async function openSoundSettings(): Promise<void> {
+  await invoke("open_sound_settings");
+}

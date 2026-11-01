@@ -133,7 +133,7 @@ export function SettingsView() {
   const [clearingDiscord, setClearingDiscord] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("1.2.2");
+  const [appVersion, setAppVersion] = useState<string>("1.2.3");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -678,55 +678,31 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Made the Spatial panner have smooth control.</span>
+                    <span>Fixed a bug that caused tooltips to clip through the window border.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Adjusted panner for more realistic directional audio.</span>
+                    <span>Fixed a bug that caused some downloads to just stay downloading even though its downloaded.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug that caused the Interface scale slider to apply without pressing apply.</span>
+                    <span>Fixed a bug that caused downloaded songs to not have Year embedded in them.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Changes to music download flow for better functioning.</span>
+                    <span>Fixed an issue with tray icon.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Removed rounded corner from settings.</span>
+                    <span>Support for In-app Output Device switching in Audio Engine.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed issues with auto-playlist icon applying and playlist track indexing.</span>
+                    <span>Upgraded Harbour API's track fetching and matching protocols for more accurate downloads.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>UI changes to PlaylistView.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>UI changes to PlaylistsView.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Moved favorites button to the right to allow for longer track titles.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Removed unnecessary blur, shadow, etc.. that caused performance issues.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Added better low end mode optimizations for smooth functioning on low end devices.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>UI changes to updater modals.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Minor unrelated UI adjustments.</span>
+                    <span>You can now cancel ongoing downloads directly from harbour's download page. </span>
                   </li>
                 </ul>
               </div>
