@@ -82,7 +82,7 @@ export function PluginView({ viewId }: { viewId: string }) {
     return (
       <div className="w-full h-full p-8 overflow-y-auto">
         <div className="max-w-2xl mx-auto">
-          <PluginConfigForm pluginId={directPluginId} />
+          <PluginConfigForm key={directPluginId} pluginId={directPluginId} />
         </div>
       </div>
     );

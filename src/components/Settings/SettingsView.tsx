@@ -3,13 +3,13 @@ import type { ReactNode } from "react";
 import {
   Palette, FolderOpen, RefreshCw, Trash2, RotateCcw, Check,
   Info, Music2, Volume2, FolderInput, Sun, Moon, Keyboard, Monitor, Bell, Zap, FileUp, FolderPlus, Database, Power,
-  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Radio
+  Inbox, PanelTop, Image as ImageIcon, ArrowUpCircle, LayoutGrid, List, Sliders, Radio, FolderCheck
 } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import { useLibrary } from "../../hooks/useLibrary";
-import { clearImageCache, getOSName } from "../../utils/tauriApi";
+import { clearImageCache, getOSName, cleanLibraryFiles } from "../../utils/tauriApi";
 import { ACCENT_PRESETS } from "../../utils/helpers";
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
 import { ConfirmationModal } from "../UI/ConfirmationModal";
@@ -80,6 +80,11 @@ export function SettingsView() {
     setShowUpdateModal,
     anonymousPresenceEnabled,
     setAnonymousPresenceEnabled,
+    addNotification,
+    tracks,
+    setTracks,
+    playlists,
+    updatePlaylist,
   } = useStore(useShallow((s) => ({
     accentColor: s.accentColor,
     customAccentColor: s.customAccentColor,
@@ -113,6 +118,11 @@ export function SettingsView() {
     setShowUpdateModal: s.setShowUpdateModal,
     anonymousPresenceEnabled: s.anonymousPresenceEnabled,
     setAnonymousPresenceEnabled: s.setAnonymousPresenceEnabled,
+    addNotification: s.addNotification,
+    tracks: s.tracks,
+    setTracks: s.setTracks,
+    playlists: s.playlists,
+    updatePlaylist: s.updatePlaylist,
   })));
 
   const { displayTracks, displayMusicDir, displayPlaylistsDir } = useDisplayData();
@@ -131,9 +141,11 @@ export function SettingsView() {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [clearingDiscord, setClearingDiscord] = useState(false);
+  const [cleaningLibrary, setCleaningLibrary] = useState(false);
+  const [reloadingApp, setReloadingApp] = useState(false);
   const [showFlashbangWarning, setShowFlashbangWarning] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("1.2.3");
+  const [appVersion, setAppVersion] = useState<string>("1.3.0");
   const [localGuiScale, setLocalGuiScale] = useState(guiScale);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -173,8 +185,10 @@ export function SettingsView() {
     try {
       await clearImageCache();
       await rescanDirectory();
+      addNotification("Artwork cache cleared and covers refreshed", "success", 3500);
     } catch (err) {
       console.error("Clear cache error:", err);
+      addNotification("Failed to clear artwork cache. Please try again.", "error", 4000);
     } finally {
       setClearingCache(false);
     }
@@ -182,13 +196,71 @@ export function SettingsView() {
 
   const handleClearDiscordCache = () => {
     setClearingDiscord(true);
-    clearDiscordCoverCache();
-    setTimeout(() => setClearingDiscord(false), 600);
+    try {
+      clearDiscordCoverCache();
+      setTimeout(() => {
+        setClearingDiscord(false);
+        addNotification("Discord presence cover history has been reset", "success", 3500);
+      }, 450);
+    } catch (err) {
+      console.error("Discord cache error:", err);
+      setClearingDiscord(false);
+      addNotification("Failed to reset Discord presence history", "error", 4000);
+    }
+  };
+
+  const handleCleanLibrary = async () => {
+    setCleaningLibrary(true);
+    try {
+      const filePaths = tracks.map((t) => t.filePath).filter(Boolean);
+      const result = await cleanLibraryFiles(filePaths, displayMusicDir || undefined);
+
+      let removedCount = 0;
+      if (result && result.missingPaths && result.missingPaths.length > 0) {
+        const missingSet = new Set(result.missingPaths);
+        const remainingTracks = tracks.filter((t) => !missingSet.has(t.filePath));
+        setTracks(remainingTracks);
+        removedCount = result.missingPaths.length;
+
+        // Clean missing tracks from all playlists
+        playlists.forEach((pl) => {
+          const validTrackIds = pl.trackIds.filter((id) => {
+            const track = tracks.find((t) => t.id === id);
+            return track ? !missingSet.has(track.filePath) : true;
+          });
+          if (validTrackIds.length !== pl.trackIds.length) {
+            updatePlaylist({ ...pl, trackIds: validTrackIds });
+          }
+        });
+      }
+
+      const tempRemoved = result?.tempFilesRemoved || 0;
+      if (removedCount > 0 || tempRemoved > 0) {
+        const messages = [];
+        if (removedCount > 0) {
+          messages.push(`removed ${removedCount} missing track${removedCount === 1 ? "" : "s"}`);
+        }
+        if (tempRemoved > 0) {
+          messages.push(`cleared ${tempRemoved} leftover download fragment${tempRemoved === 1 ? "" : "s"}`);
+        }
+        addNotification(`Library cleaned: ${messages.join(" and ")}.`, "success", 4000);
+      } else {
+        addNotification("Your library is clean! All audio files exist on your drive.", "success", 3500);
+      }
+    } catch (err) {
+      console.error("Clean library error:", err);
+      addNotification("Failed to verify library files. Please try again.", "error", 4000);
+    } finally {
+      setCleaningLibrary(false);
+    }
   };
 
   const handleReloadApp = () => {
+    setReloadingApp(true);
     localStorage.setItem("returnToSettings", "true");
-    window.location.reload();
+    setTimeout(() => {
+      window.location.reload();
+    }, 150);
   };
 
   const getBuildId = () => {
@@ -394,25 +466,21 @@ export function SettingsView() {
                   <p className="text-[10px] text-text-muted font-mono truncate">{displayPlaylistsDir || "None selected"}</p>
                 </div>
               </div>
-
-              {
-                // This is the maintenance section part
-              }
-              <div className="space-y-3 pt-2">
+              <div className="flex flex-col gap-2">
                 <span className="text-xs font-bold text-text-muted uppercase tracking-widest">Maintenance</span>
                 <div className="grid grid-cols-1 gap-2">
                   <div className="flex items-center justify-between p-3 rounded-xl bg-surface-overlay border border-border-subtle group hover:border-accent/30 transition-all">
                     <div className="flex items-center gap-3">
-                      <ImageIcon size={14} className="text-text-muted group-hover:text-accent transition-colors" />
+                      <ImageIcon size={14} className="text-text-muted group-hover:text-accent transition-colors shrink-0" />
                       <div>
-                        <p className="text-[13px] font-medium text-text-primary leading-none">Image Cache</p>
-                        <p className="text-[9px] text-text-muted mt-1 italic">Clear generated cover thumbnails</p>
+                        <p className="text-[13px] font-medium text-text-primary leading-none">Cover Artwork Cache</p>
+                        <p className="text-[10px] text-text-muted mt-1">Free up disk space and refresh covers if you updated your audio files</p>
                       </div>
                     </div>
                     <button
                       onClick={handleClearCache}
                       disabled={clearingCache}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-red-400 hover:border-red-400/30 transition-all uppercase tracking-wider"
+                      className="flex items-center justify-center gap-2 w-36 h-8 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-red-400 hover:border-red-400/30 transition-all uppercase tracking-wider disabled:opacity-40 shrink-0"
                     >
                       {clearingCache ? <RefreshCw size={12} className="animate-spin" /> : <Trash2 size={12} />}
                       {clearingCache ? "Clearing..." : "Clear Cache"}
@@ -421,36 +489,55 @@ export function SettingsView() {
 
                   <div className="flex items-center justify-between p-3 rounded-xl bg-surface-overlay border border-border-subtle group hover:border-accent/30 transition-all">
                     <div className="flex items-center gap-3">
-                      <Database size={14} className="text-text-muted group-hover:text-accent transition-colors" />
+                      <Database size={14} className="text-text-muted group-hover:text-accent transition-colors shrink-0" />
                       <div>
-                        <p className="text-[13px] font-medium text-text-primary leading-none">Discord Cache</p>
-                        <p className="text-[9px] text-text-muted mt-1 italic">Reset rich presence cover history</p>
+                        <p className="text-[13px] font-medium text-text-primary leading-none">Discord Presence History</p>
+                        <p className="text-[10px] text-text-muted mt-1">Fix wrong or missing song artwork shown on your Discord profile</p>
                       </div>
                     </div>
                     <button
                       onClick={handleClearDiscordCache}
                       disabled={clearingDiscord}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-accent hover:border-accent/30 transition-all uppercase tracking-wider"
+                      className="flex items-center justify-center gap-2 w-36 h-8 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-accent hover:border-accent/30 transition-all uppercase tracking-wider disabled:opacity-40 shrink-0"
                     >
                       {clearingDiscord ? <RefreshCw size={12} className="animate-spin" /> : <Database size={12} />}
-                      {clearingDiscord ? "Clearing..." : "Reset Data"}
+                      {clearingDiscord ? "Resetting..." : "Reset History"}
                     </button>
                   </div>
 
                   <div className="flex items-center justify-between p-3 rounded-xl bg-surface-overlay border border-border-subtle group hover:border-accent/30 transition-all">
                     <div className="flex items-center gap-3">
-                      <Power size={14} className="text-text-muted group-hover:text-accent transition-colors" />
+                      <FolderCheck size={14} className="text-text-muted group-hover:text-accent transition-colors shrink-0" />
                       <div>
-                        <p className="text-[13px] font-medium text-text-primary leading-none">App Memory</p>
-                        <p className="text-[9px] text-text-muted mt-1 italic">Flush RAM & reload interface</p>
+                        <p className="text-[13px] font-medium text-text-primary leading-none">Clean Missing Songs</p>
+                        <p className="text-[10px] text-text-muted mt-1">Scan for ghost tracks whose files were moved or deleted from your drive</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleCleanLibrary}
+                      disabled={cleaningLibrary}
+                      className="flex items-center justify-center gap-2 w-36 h-8 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-emerald-400 hover:border-emerald-400/30 transition-all uppercase tracking-wider disabled:opacity-40 shrink-0"
+                    >
+                      {cleaningLibrary ? <RefreshCw size={12} className="animate-spin" /> : <FolderCheck size={12} />}
+                      {cleaningLibrary ? "Scanning..." : "Clean Library"}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-surface-overlay border border-border-subtle group hover:border-accent/30 transition-all">
+                    <div className="flex items-center gap-3">
+                      <Power size={14} className="text-text-muted group-hover:text-accent transition-colors shrink-0" />
+                      <div>
+                        <p className="text-[13px] font-medium text-text-primary leading-none">App Memory & Interface</p>
+                        <p className="text-[10px] text-text-muted mt-1">Give Mewsic a fresh restart to release memory and smooth out performance</p>
                       </div>
                     </div>
                     <button
                       onClick={handleReloadApp}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-accent hover:border-accent/30 transition-all uppercase tracking-wider"
+                      disabled={reloadingApp}
+                      className="flex items-center justify-center gap-2 w-36 h-8 rounded-lg bg-surface-raised border border-border-subtle text-[10px] font-bold text-text-muted hover:text-amber-400 hover:border-amber-400/30 transition-all uppercase tracking-wider disabled:opacity-40 shrink-0"
                     >
-                      <Power size={12} />
-                      Reload App
+                      {reloadingApp ? <RefreshCw size={12} className="animate-spin" /> : <Power size={12} />}
+                      {reloadingApp ? "Reloading..." : "Reload App"}
                     </button>
                   </div>
                 </div>
@@ -678,31 +765,31 @@ export function SettingsView() {
                 <ul className="space-y-2.5 text-xs text-text-muted">
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug that caused tooltips to clip through the window border.</span>
+                    <span>Revamped Plugin UI.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug that caused some downloads to just stay downloading even though its downloaded.</span>
+                    <span>Updated PluginAPI and how plugins are loaded and managed.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed a bug that caused downloaded songs to not have Year embedded in them.</span>
+                    <span>In-App Plugin marketplace coming soon.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Fixed an issue with tray icon.</span>
+                    <span>Added a button in Habrour for updating Harbour dependencies.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Support for In-app Output Device switching in Audio Engine.</span>
+                    <span>JioSaavn downloads no longer require Harbour dependencies.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>Upgraded Harbour API's track fetching and matching protocols for more accurate downloads.</span>
+                    <span>Better app storage management in settings.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-accent mt-0.5 font-bold">•</span>
-                    <span>You can now cancel ongoing downloads directly from harbour's download page. </span>
+                    <span>Centralised storage management for most app functions. </span>
                   </li>
                 </ul>
               </div>

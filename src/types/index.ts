@@ -146,3 +146,17 @@ export interface PluginConfigField {
 }
 
 export type PluginConfigSchema = PluginConfigField[];
+
+export interface PluginManifest {
+  name?: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  accentColor?: string;
+  ambientColor?: string;
+  tags?: string[];
+  features?: string[];
+  config?: PluginConfigField[];
+  settings?: PluginConfigField[];
+  [key: string]: any;
+}

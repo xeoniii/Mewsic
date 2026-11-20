@@ -30,7 +30,7 @@ use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -278,6 +278,8 @@ pub struct AppState {
     pub tray_enabled: AtomicBool,
     pub dev_mode_enabled: AtomicBool,
     pub active_downloads: Mutex<std::collections::HashMap<String, ActiveDownloadHandle>>,
+    pub is_updating_dependencies: AtomicBool,
+    pub dependency_update_status: Mutex<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -471,6 +473,216 @@ fn stem_from_path(path: &Path) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
+fn get_mewsic_data_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("Mewsic");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("Mewsic");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(data_home) = std::env::var("XDG_DATA_HOME") {
+            return PathBuf::from(data_home).join("mewsic");
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(".local").join("share").join("mewsic");
+        }
+    }
+    PathBuf::from("Mewsic")
+}
+
+fn get_mewsic_bin_dir() -> PathBuf {
+    get_mewsic_data_dir().join("bin")
+}
+
+fn get_mewsic_plugins_dir() -> PathBuf {
+    get_mewsic_data_dir().join("plugins")
+}
+
+fn get_mewsic_covers_dir() -> PathBuf {
+    get_mewsic_data_dir().join("cache").join("covers")
+}
+
+fn get_mewsic_webview_dir() -> PathBuf {
+    get_mewsic_data_dir().join("webview")
+}
+
+fn move_file_or_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+
+    if src.is_dir() {
+        if !dst.exists() {
+            if fs::rename(src, dst).is_ok() {
+                return Ok(());
+            }
+        }
+        fs::create_dir_all(dst)?;
+        if let Ok(entries) = fs::read_dir(src) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                let target_path = dst.join(entry.file_name());
+                let _ = move_file_or_dir(&entry_path, &target_path);
+            }
+        }
+        let _ = fs::remove_dir_all(src);
+    } else {
+        if let Some(parent) = dst.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if dst.exists() {
+            let _ = fs::remove_file(dst);
+        }
+        if fs::rename(src, dst).is_err() {
+            fs::copy(src, dst)?;
+            let _ = fs::remove_file(src);
+        }
+    }
+    Ok(())
+}
+
+fn migrate_legacy_data() {
+    let mewsic_dir = get_mewsic_data_dir();
+    let bin_dir = get_mewsic_bin_dir();
+    let plugins_dir = get_mewsic_plugins_dir();
+    let covers_dir = get_mewsic_covers_dir();
+    let webview_dir = get_mewsic_webview_dir();
+
+    // Ensure all centralized target directories exist
+    let _ = fs::create_dir_all(&bin_dir);
+    let _ = fs::create_dir_all(&plugins_dir);
+    let _ = fs::create_dir_all(&covers_dir);
+    let _ = fs::create_dir_all(&webview_dir);
+
+    // 1. Move loose binaries in Mewsic root into bin/
+    let yt_names = ["yt-dlp.exe", "yt-dlp", "yt-dlp_macos"];
+    let ff_names = [
+        "ffmpeg.exe",
+        "ffmpeg",
+        "ffmpeg-win32-x64",
+        "ffmpeg-darwin-x64",
+        "ffmpeg-linux-x64",
+    ];
+
+    for name in &yt_names {
+        let loose_yt = mewsic_dir.join(name);
+        if loose_yt.exists() && loose_yt.is_file() {
+            let target = bin_dir.join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
+            let _ = move_file_or_dir(&loose_yt, &target);
+        }
+    }
+
+    for name in &ff_names {
+        let loose_ff = mewsic_dir.join(name);
+        if loose_ff.exists() && loose_ff.is_file() {
+            let target = bin_dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+            let _ = move_file_or_dir(&loose_ff, &target);
+        }
+    }
+
+    // 2. Platform-specific legacy directory migrations
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let old_roaming = PathBuf::from(&appdata).join("dev.xeoniii.mewsic");
+            if old_roaming.exists() {
+                let old_plugins = old_roaming.join("plugins");
+                if old_plugins.exists() {
+                    let _ = move_file_or_dir(&old_plugins, &plugins_dir);
+                }
+                for _ in 0..5 {
+                    if fs::remove_dir_all(&old_roaming).is_ok() || !old_roaming.exists() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+
+        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+            let old_local = PathBuf::from(&localappdata).join("dev.xeoniii.mewsic");
+            if old_local.exists() {
+                let old_covers = old_local.join("covers");
+                if old_covers.exists() {
+                    let _ = move_file_or_dir(&old_covers, &covers_dir);
+                }
+
+                let old_ebwebview = old_local.join("EBWebView");
+                if old_ebwebview.exists() {
+                    let target_ebwebview = webview_dir.join("EBWebView");
+                    let _ = move_file_or_dir(&old_ebwebview, &target_ebwebview);
+                }
+
+                for _ in 0..5 {
+                    if fs::remove_dir_all(&old_local).is_ok() || !old_local.exists() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let home_path = PathBuf::from(home);
+            // macOS legacy
+            let old_mac_app_support = home_path
+                .join("Library")
+                .join("Application Support")
+                .join("dev.xeoniii.mewsic");
+            if old_mac_app_support.exists() {
+                let old_plugins = old_mac_app_support.join("plugins");
+                if old_plugins.exists() {
+                    let _ = move_file_or_dir(&old_plugins, &plugins_dir);
+                }
+                let _ = fs::remove_dir_all(&old_mac_app_support);
+            }
+            let old_mac_caches = home_path
+                .join("Library")
+                .join("Caches")
+                .join("dev.xeoniii.mewsic");
+            if old_mac_caches.exists() {
+                let old_covers = old_mac_caches.join("covers");
+                if old_covers.exists() {
+                    let _ = move_file_or_dir(&old_covers, &covers_dir);
+                }
+                let _ = fs::remove_dir_all(&old_mac_caches);
+            }
+
+            // Linux legacy
+            let old_linux_config = home_path.join(".config").join("dev.xeoniii.mewsic");
+            if old_linux_config.exists() {
+                let old_plugins = old_linux_config.join("plugins");
+                if old_plugins.exists() {
+                    let _ = move_file_or_dir(&old_plugins, &plugins_dir);
+                }
+                let _ = fs::remove_dir_all(&old_linux_config);
+            }
+            let old_linux_cache = home_path.join(".cache").join("dev.xeoniii.mewsic");
+            if old_linux_cache.exists() {
+                let old_covers = old_linux_cache.join("covers");
+                if old_covers.exists() {
+                    let _ = move_file_or_dir(&old_covers, &covers_dir);
+                }
+                let _ = fs::remove_dir_all(&old_linux_cache);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn get_app_paths(app_handle: tauri::AppHandle) -> Result<AppPaths, String> {
     let music_home = app_handle.path().audio_dir().map_err(|e| e.to_string())?;
@@ -478,11 +690,7 @@ fn get_app_paths(app_handle: tauri::AppHandle) -> Result<AppPaths, String> {
 
     let music_dir = base.join("Music");
     let playlists_dir = base.join("Playlists");
-    let covers_dir = app_handle
-        .path()
-        .app_cache_dir()
-        .map_err(|e| e.to_string())?
-        .join("covers");
+    let covers_dir = get_mewsic_covers_dir();
 
     fs::create_dir_all(&music_dir).map_err(|e| format!("Cannot create music dir: {}", e))?;
     fs::create_dir_all(&playlists_dir)
@@ -509,13 +717,132 @@ fn get_downloads_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+fn load_plugin_from_zip(path: &Path) -> Result<PluginData, String> {
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    let mut manifest_index = None;
+    let mut folder_prefix = String::new();
+
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        let name = entry.name().to_string();
+        if name == "manifest.json" {
+            manifest_index = Some(i);
+            folder_prefix = String::new();
+            break;
+        } else if name.ends_with("/manifest.json") {
+            let parts: Vec<&str> = name.split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() == 2 {
+                folder_prefix = format!("{}/", parts[0]);
+                manifest_index = Some(i);
+            }
+        }
+    }
+
+    let manifest_idx = manifest_index.ok_or_else(|| "Missing manifest.json in plugin archive".to_string())?;
+
+    let manifest_str = {
+        let mut entry = archive.by_index(manifest_idx).map_err(|e| e.to_string())?;
+        let mut s = String::new();
+        entry.read_to_string(&mut s).map_err(|e| e.to_string())?;
+        s
+    };
+
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_str)
+        .map_err(|e| format!("Invalid manifest.json: {}", e))?;
+
+    let file_stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let id = manifest
+        .get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or(file_stem);
+
+    let js_content = {
+        let js_path = format!("{}plugin.js", folder_prefix);
+        if let Ok(mut entry) = archive.by_name(&js_path) {
+            let mut s = String::new();
+            if entry.read_to_string(&mut s).is_ok() {
+                Some(s)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let css_content = {
+        let css_path = format!("{}styles.css", folder_prefix);
+        if let Ok(mut entry) = archive.by_name(&css_path) {
+            let mut s = String::new();
+            if entry.read_to_string(&mut s).is_ok() {
+                Some(s)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    Ok(PluginData {
+        id,
+        manifest,
+        js_content,
+        css_content,
+    })
+}
+
+fn load_plugin_from_dir(path: &Path) -> Result<PluginData, String> {
+    let mut manifest_path = path.join("manifest.json");
+    let mut base_dir = path.to_path_buf();
+
+    if !manifest_path.exists() {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let sub_path = entry.path();
+                if sub_path.is_dir() && sub_path.join("manifest.json").exists() {
+                    manifest_path = sub_path.join("manifest.json");
+                    base_dir = sub_path;
+                    break;
+                }
+            }
+        }
+    }
+
+    if !manifest_path.exists() {
+        return Err("Missing manifest.json in plugin directory".to_string());
+    }
+
+    let manifest_str = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_str)
+        .map_err(|e| format!("Invalid manifest.json: {}", e))?;
+
+    let dir_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let id = manifest
+        .get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or(dir_name);
+
+    let js_content = fs::read_to_string(base_dir.join("plugin.js")).ok();
+    let css_content = fs::read_to_string(base_dir.join("styles.css")).ok();
+
+    Ok(PluginData {
+        id,
+        manifest,
+        js_content,
+        css_content,
+    })
+}
+
 #[tauri::command]
-async fn get_plugins(app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, String> {
-    let plugins_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map(|p| p.join("plugins"))
-        .unwrap_or_else(|_| PathBuf::from("plugins"));
+async fn get_plugins(_app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, String> {
+    let plugins_dir = get_mewsic_plugins_dir();
 
     if !plugins_dir.exists() {
         if let Err(e) = fs::create_dir_all(&plugins_dir) {
@@ -525,27 +852,35 @@ async fn get_plugins(app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, St
     }
 
     let mut plugins = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
 
     if let Ok(entries) = fs::read_dir(&plugins_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && path.extension().and_then(|s| s.to_str()) == Some("mewsic") {
-                let manifest_path = path.join("manifest.json");
-                if manifest_path.exists() {
-                    let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                    
-                    let manifest_str = fs::read_to_string(&manifest_path).unwrap_or_default();
-                    let manifest: serde_json::Value = serde_json::from_str(&manifest_str).unwrap_or(serde_json::json!({}));
-
-                    let js_content = fs::read_to_string(path.join("plugin.js")).ok();
-                    let css_content = fs::read_to_string(path.join("styles.css")).ok();
-
-                    plugins.push(PluginData {
-                        id,
-                        manifest,
-                        js_content,
-                        css_content,
-                    });
+            if path.is_file() {
+                let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
+                if ext == Some("zip".into()) || ext == Some("mewsic".into()) {
+                    match load_plugin_from_zip(&path) {
+                        Ok(plugin) => {
+                            if seen_ids.insert(plugin.id.clone()) {
+                                plugins.push(plugin);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[PluginLoader] Failed to load zip plugin {}: {}", path.display(), e);
+                        }
+                    }
+                }
+            } else if path.is_dir() {
+                match load_plugin_from_dir(&path) {
+                    Ok(plugin) => {
+                        if seen_ids.insert(plugin.id.clone()) {
+                            plugins.push(plugin);
+                        }
+                    }
+                    Err(_) => {
+                        // Directory is not a plugin (e.g. temporary folder or unrelated directory)
+                    }
                 }
             }
         }
@@ -555,40 +890,61 @@ async fn get_plugins(app_handle: tauri::AppHandle) -> Result<Vec<PluginData>, St
 }
 
 #[tauri::command]
-async fn delete_plugin(app_handle: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
-    let plugins_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map(|p| p.join("plugins"))
-        .unwrap_or_else(|_| PathBuf::from("plugins"));
+async fn delete_plugin(_app_handle: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
+    let plugins_dir = get_mewsic_plugins_dir();
 
     if !plugins_dir.exists() {
         return Err("Plugins directory not found".into());
     }
 
+    let mut deleted = false;
+
     if let Ok(entries) = fs::read_dir(&plugins_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && path.extension().and_then(|s| s.to_str()) == Some("mewsic") {
-                let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                if id == plugin_id {
-                    fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
-                    return Ok(());
+            if path.is_file() {
+                let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
+                if ext == Some("zip".into()) || ext == Some("mewsic".into()) {
+                    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                    let matches_stem = stem == plugin_id;
+                    let matches_manifest_id = load_plugin_from_zip(&path)
+                        .map(|p| p.id == plugin_id)
+                        .unwrap_or(false);
+
+                    if matches_stem || matches_manifest_id {
+                        if fs::remove_file(&path).is_ok() {
+                            deleted = true;
+                        }
+                    }
+                }
+            } else if path.is_dir() {
+                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                let matches_stem = stem == plugin_id
+                    || stem == format!("{}.mewsic", plugin_id)
+                    || stem == format!("{}.zip", plugin_id);
+                let matches_manifest_id = load_plugin_from_dir(&path)
+                    .map(|p| p.id == plugin_id)
+                    .unwrap_or(false);
+
+                if matches_stem || matches_manifest_id {
+                    if fs::remove_dir_all(&path).is_ok() {
+                        deleted = true;
+                    }
                 }
             }
         }
     }
-    
-    Err("Plugin not found".into())
+
+    if deleted {
+        Ok(())
+    } else {
+        Err("Plugin not found".into())
+    }
 }
 
 #[tauri::command]
-fn get_plugins_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
-    let plugins_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map(|p| p.join("plugins"))
-        .map_err(|e| e.to_string())?;
+fn get_plugins_dir(_app_handle: tauri::AppHandle) -> Result<String, String> {
+    let plugins_dir = get_mewsic_plugins_dir();
     if !plugins_dir.exists() {
         fs::create_dir_all(&plugins_dir).map_err(|e| e.to_string())?;
     }
@@ -596,14 +952,13 @@ fn get_plugins_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn install_plugin_from_path(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
+async fn install_plugin_from_path(_app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
     let src = PathBuf::from(&path);
+    if !src.exists() {
+        return Err("Source file or folder does not exist".into());
+    }
 
-    let plugins_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map(|p| p.join("plugins"))
-        .map_err(|e| e.to_string())?;
+    let plugins_dir = get_mewsic_plugins_dir();
     fs::create_dir_all(&plugins_dir).map_err(|e| e.to_string())?;
 
     fn copy_dir(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
@@ -620,73 +975,49 @@ async fn install_plugin_from_path(app_handle: tauri::AppHandle, path: String) ->
         Ok(())
     }
 
-    // Case 1: it's already a .mewsic directory
-    if src.is_dir() && src.extension().and_then(|s| s.to_str()) == Some("mewsic") {
-        if !src.join("manifest.json").exists() {
-            return Err("Missing manifest.json".into());
-        }
-        let dest = plugins_dir.join(src.file_name().unwrap_or_default());
-        if dest.exists() { fs::remove_dir_all(&dest).map_err(|e| e.to_string())?; }
-        copy_dir(&src, &dest).map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // Case 2: it's a zip archive (extension is .mewsic or .zip — we treat both the same)
     if src.is_file() {
-        let file = fs::File::open(&src).map_err(|e| e.to_string())?;
-        let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+        let plugin = load_plugin_from_zip(&src)
+            .map_err(|e| format!("Invalid plugin archive: {}", e))?;
 
-        // Detect common path prefix inside the zip (some zippers wrap everything in a folder)
-        let prefix: Option<String> = {
-            let first = archive.by_index(0).map_err(|e| e.to_string())?;
-            let name = first.name().to_string();
-            if name.contains('/') {
-                Some(name.split('/').next().unwrap_or("").to_string())
-            } else {
-                None
-            }
+        let file_name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let target_name = if file_name.ends_with(".mewsic") {
+            format!("{}.zip", file_name.trim_end_matches(".mewsic"))
+        } else if !file_name.ends_with(".zip") {
+            format!("{}.zip", file_name)
+        } else {
+            file_name
         };
 
-        // Use the archive filename (without extension) as the plugin folder name
-        let plugin_stem = src.file_stem().unwrap_or_default().to_string_lossy().to_string();
-        let plugin_folder = format!("{}.mewsic", plugin_stem.trim_end_matches(".mewsic"));
-        let dest = plugins_dir.join(&plugin_folder);
-        if dest.exists() { fs::remove_dir_all(&dest).map_err(|e| e.to_string())?; }
-        fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-            let raw_name = file.name().to_string();
-
-            // Strip the common prefix if present
-            let relative = if let Some(ref pfx) = prefix {
-                raw_name.strip_prefix(&format!("{}/", pfx)).unwrap_or(&raw_name).to_string()
-            } else {
-                raw_name.clone()
-            };
-
-            if relative.is_empty() { continue; }
-
-            let out_path = dest.join(&relative);
-            if file.is_dir() {
-                fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
-            } else {
-                if let Some(parent) = out_path.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-                let mut out = fs::File::create(&out_path).map_err(|e| e.to_string())?;
-                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
-            }
+        let dest = plugins_dir.join(&target_name);
+        if dest.exists() && src != dest {
+            fs::remove_file(&dest).map_err(|e| e.to_string())?;
+        }
+        let folder_conflict = plugins_dir.join(&plugin.id);
+        if folder_conflict.exists() && folder_conflict.is_dir() {
+            let _ = fs::remove_dir_all(&folder_conflict);
         }
 
-        if !dest.join("manifest.json").exists() {
-            fs::remove_dir_all(&dest).ok();
-            return Err("Invalid plugin archive: missing manifest.json".into());
+        if src != dest {
+            fs::copy(&src, &dest).map_err(|e| e.to_string())?;
         }
         return Ok(());
     }
 
-    Err("Path must be a .mewsic folder or a .mewsic/.zip archive".into())
+    if src.is_dir() {
+        load_plugin_from_dir(&src)
+            .map_err(|e| format!("Invalid plugin directory: {}", e))?;
+
+        let dest = plugins_dir.join(src.file_name().unwrap_or_default());
+        if dest.exists() && src != dest {
+            fs::remove_dir_all(&dest).map_err(|e| e.to_string())?;
+        }
+        if src != dest {
+            copy_dir(&src, &dest).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+
+    Err("Path must be a plugin folder or a .zip archive".into())
 }
 
 
@@ -1216,16 +1547,11 @@ async fn search_itunes(app_handle: tauri::AppHandle, query: String) -> Result<Ve
 async fn get_yt_dlp_path(app_handle: &tauri::AppHandle) -> PathBuf {
     let bin_name = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
 
-    // 1. Check bundled resource directory (installed app / packaged bundle)
-    if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        let bundled = resource_dir.join("bin").join(bin_name);
-        if bundled.exists() {
-            return bundled;
-        }
-        let bundled_direct = resource_dir.join(bin_name);
-        if bundled_direct.exists() {
-            return bundled_direct;
-        }
+    // 1. Prioritize user updated / centralized bin directory: %APPDATA%\Mewsic\bin
+    let bin_dir = get_mewsic_bin_dir();
+    let bin_file = bin_dir.join(bin_name);
+    if bin_file.exists() {
+        return bin_file;
     }
 
     // 2. Check alongside current executable (local dev / portable bundle)
@@ -1246,20 +1572,7 @@ async fn get_yt_dlp_path(app_handle: &tauri::AppHandle) -> PathBuf {
         }
     }
 
-    // 3. Fallback to AppData / user data directory
-    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
-    let app_data_bin = app_dir.join(bin_name);
-    if app_data_bin.exists() {
-        return app_data_bin;
-    }
-
-    app_data_bin
-}
-
-async fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let bin_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-
-    // 1. Check bundled resource directory
+    // 3. Check bundled resource directory (installed app / packaged bundle)
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
         let bundled = resource_dir.join("bin").join(bin_name);
         if bundled.exists() {
@@ -1269,6 +1582,25 @@ async fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> PathBuf {
         if bundled_direct.exists() {
             return bundled_direct;
         }
+    }
+
+    // 4. Loose fallback in Mewsic root if not yet migrated
+    let loose = get_mewsic_data_dir().join(bin_name);
+    if loose.exists() {
+        return loose;
+    }
+
+    bin_file
+}
+
+async fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> PathBuf {
+    let bin_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+
+    // 1. Prioritize user updated / centralized bin directory: %APPDATA%\Mewsic\bin
+    let bin_dir = get_mewsic_bin_dir();
+    let bin_file = bin_dir.join(bin_name);
+    if bin_file.exists() {
+        return bin_file;
     }
 
     // 2. Check alongside current executable
@@ -1289,14 +1621,25 @@ async fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> PathBuf {
         }
     }
 
-    // 3. Fallback to AppData / user data directory
-    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
-    let app_data_bin = app_dir.join(bin_name);
-    if app_data_bin.exists() {
-        return app_data_bin;
+    // 3. Check bundled resource directory
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let bundled = resource_dir.join("bin").join(bin_name);
+        if bundled.exists() {
+            return bundled;
+        }
+        let bundled_direct = resource_dir.join(bin_name);
+        if bundled_direct.exists() {
+            return bundled_direct;
+        }
     }
 
-    app_data_bin
+    // 4. Loose fallback in Mewsic root if not yet migrated
+    let loose = get_mewsic_data_dir().join(bin_name);
+    if loose.exists() {
+        return loose;
+    }
+
+    bin_file
 }
 
 async fn download_file_with_progress(
@@ -1344,6 +1687,231 @@ async fn download_file_with_progress(
     Ok(())
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct HarbourDependencyStatus {
+    yt_dlp_version: String,
+    ffmpeg_version: String,
+    yt_dlp_updated: bool,
+    ffmpeg_updated: bool,
+    is_updating: bool,
+    current_status: String,
+    message: String,
+}
+
+fn get_binary_version(bin_path: &Path, args: &[&str]) -> Option<String> {
+    if !bin_path.exists() {
+        return None;
+    }
+    let mut cmd = std::process::Command::new(bin_path);
+    cmd.args(args);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    if let Ok(output) = cmd.output() {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let first_line = s.lines().next().unwrap_or("").trim().to_string();
+            if !first_line.is_empty() {
+                return Some(first_line);
+            }
+        }
+    }
+    None
+}
+
+async fn download_and_install_ytdlp(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let bin_dir = get_mewsic_bin_dir();
+    fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+    let target_yt = bin_dir.join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
+    let url = if cfg!(target_os = "windows") {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    } else if cfg!(target_os = "macos") {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+    } else {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+    };
+
+    let tmp_yt = target_yt.with_extension("tmp");
+    download_file_with_progress(app_handle, url, &tmp_yt, "harbour-download-progress-ytdlp").await?;
+
+    if target_yt.exists() {
+        let _ = fs::remove_file(&target_yt);
+    }
+    fs::rename(&tmp_yt, &target_yt).map_err(|e| format!("Failed to replace yt-dlp binary: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&target_yt).map_err(|e| e.to_string())?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&target_yt, perms).map_err(|e| e.to_string())?;
+    }
+
+    Ok(target_yt)
+}
+
+async fn download_and_install_ffmpeg(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let bin_dir = get_mewsic_bin_dir();
+    fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+    let target_ff = bin_dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+    let url = if cfg!(target_os = "windows") {
+        "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64"
+    } else if cfg!(target_os = "macos") {
+        "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-darwin-x64"
+    } else {
+        "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-linux-x64"
+    };
+
+    let tmp_ff = target_ff.with_extension("tmp");
+    download_file_with_progress(app_handle, url, &tmp_ff, "harbour-download-progress-ffmpeg").await?;
+
+    if target_ff.exists() {
+        let _ = fs::remove_file(&target_ff);
+    }
+    fs::rename(&tmp_ff, &target_ff).map_err(|e| format!("Failed to replace ffmpeg binary: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&target_ff).map_err(|e| e.to_string())?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&target_ff, perms).map_err(|e| e.to_string())?;
+    }
+
+    Ok(target_ff)
+}
+
+#[tauri::command]
+async fn get_dependencies_status(app_handle: tauri::AppHandle) -> Result<HarbourDependencyStatus, String> {
+    let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
+    let ffmpeg_path = get_ffmpeg_path(&app_handle).await;
+
+    let yt_dlp_version = get_binary_version(&yt_dlp_path, &["--version"])
+        .unwrap_or_else(|| "Not installed".to_string());
+
+    let ffmpeg_version = get_binary_version(&ffmpeg_path, &["-version"])
+        .map(|v| v.split_whitespace().take(3).collect::<Vec<&str>>().join(" "))
+        .unwrap_or_else(|| "Not installed".to_string());
+
+    let (is_updating, current_status) = if let Some(state) = app_handle.try_state::<AppState>() {
+        let updating = state.is_updating_dependencies.load(Ordering::SeqCst);
+        let status = state.dependency_update_status.lock().map(|s| s.clone()).unwrap_or_default();
+        (updating, status)
+    } else {
+        (false, String::new())
+    };
+
+    Ok(HarbourDependencyStatus {
+        yt_dlp_version,
+        ffmpeg_version,
+        yt_dlp_updated: false,
+        ffmpeg_updated: false,
+        is_updating,
+        current_status,
+        message: "Dependencies checked".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn update_harbour_dependencies(app_handle: tauri::AppHandle) -> Result<HarbourDependencyStatus, String> {
+    let state = app_handle.try_state::<AppState>().ok_or("App state not available")?;
+    if state.is_updating_dependencies.swap(true, Ordering::SeqCst) {
+        return Err("An update is already in progress in the background".to_string());
+    }
+
+    struct UpdateGuard<'a>(&'a AppState);
+    impl<'a> Drop for UpdateGuard<'a> {
+        fn drop(&mut self) {
+            self.0.is_updating_dependencies.store(false, Ordering::SeqCst);
+            if let Ok(mut status) = self.0.dependency_update_status.lock() {
+                *status = String::new();
+            }
+        }
+    }
+    let _guard = UpdateGuard(&*state);
+
+    let set_status = |msg: &str| {
+        if let Ok(mut s) = state.dependency_update_status.lock() {
+            *s = msg.to_string();
+        }
+        let _ = app_handle.emit("harbour-dependencies-status", msg);
+    };
+
+    set_status("Checking yt-dlp for updates...");
+    let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
+    let initial_yt_version = get_binary_version(&yt_dlp_path, &["--version"]);
+    let mut yt_updated = false;
+
+    if yt_dlp_path.exists() {
+        let mut cmd = std::process::Command::new(&yt_dlp_path);
+        cmd.arg("-U");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.contains("Updated yt-dlp") || stdout.contains("Updating to") {
+                    yt_updated = true;
+                }
+            } else {
+                set_status("Downloading latest yt-dlp...");
+                download_and_install_ytdlp(&app_handle).await?;
+                yt_updated = true;
+            }
+        } else {
+            set_status("Downloading latest yt-dlp...");
+            download_and_install_ytdlp(&app_handle).await?;
+            yt_updated = true;
+        }
+    } else {
+        set_status("Downloading latest yt-dlp...");
+        download_and_install_ytdlp(&app_handle).await?;
+        yt_updated = true;
+    }
+
+    let final_yt_path = get_yt_dlp_path(&app_handle).await;
+    let final_yt_version = get_binary_version(&final_yt_path, &["--version"])
+        .unwrap_or_else(|| "Latest".to_string());
+
+    if initial_yt_version.as_deref() != Some(&final_yt_version) {
+        yt_updated = true;
+    }
+
+    set_status("Checking & downloading FFmpeg...");
+    let ffmpeg_path = get_ffmpeg_path(&app_handle).await;
+    let initial_ff_version = get_binary_version(&ffmpeg_path, &["-version"]);
+
+    download_and_install_ffmpeg(&app_handle).await?;
+    let final_ff_path = get_ffmpeg_path(&app_handle).await;
+    let final_ff_version = get_binary_version(&final_ff_path, &["-version"])
+        .map(|v| v.split_whitespace().take(3).collect::<Vec<&str>>().join(" "))
+        .unwrap_or_else(|| "Latest".to_string());
+
+    let ff_updated = initial_ff_version.as_deref() != Some(&final_ff_version);
+
+    set_status("Dependencies up to date!");
+
+    let message = format!(
+        "Engine updated successfully. yt-dlp: {}, FFmpeg: {}",
+        final_yt_version, final_ff_version
+    );
+
+    Ok(HarbourDependencyStatus {
+        yt_dlp_version: final_yt_version,
+        ffmpeg_version: final_ff_version,
+        yt_dlp_updated: yt_updated,
+        ffmpeg_updated: ff_updated,
+        is_updating: false,
+        current_status: String::new(),
+        message,
+    })
+}
+
 #[tauri::command]
 async fn ensure_dependencies(app_handle: tauri::AppHandle) -> Result<String, String> {
     let yt_dlp_path = get_yt_dlp_path(&app_handle).await;
@@ -1354,52 +1922,12 @@ async fn ensure_dependencies(app_handle: tauri::AppHandle) -> Result<String, Str
         return Ok("Dependencies ready".to_string());
     }
 
-    // Otherwise ensure app data dir exists for on-demand downloads
-    let app_dir = app_handle.path().data_dir().unwrap_or_default().join("Mewsic");
-    fs::create_dir_all(&app_dir).map_err(|e| format!("Failed to create app directory: {}", e))?;
-
-    // Download yt-dlp if missing
     if !yt_dlp_path.exists() {
-        let target_yt = app_dir.join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
-        let url = if cfg!(target_os = "windows") {
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-        } else if cfg!(target_os = "macos") {
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-        } else {
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-        };
-
-        download_file_with_progress(&app_handle, url, &target_yt, "harbour-download-progress-ytdlp").await?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&target_yt).map_err(|e| e.to_string())?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&target_yt, perms).map_err(|e| e.to_string())?;
-        }
+        download_and_install_ytdlp(&app_handle).await?;
     }
 
-    // Download ffmpeg if missing
     if !ffmpeg_path.exists() {
-        let target_ff = app_dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
-        let url = if cfg!(target_os = "windows") {
-            "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-win32-x64"
-        } else if cfg!(target_os = "macos") {
-            "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-darwin-x64"
-        } else {
-            "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/ffmpeg-linux-x64"
-        };
-
-        download_file_with_progress(&app_handle, url, &target_ff, "harbour-download-progress-ffmpeg").await?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&target_ff).map_err(|e| e.to_string())?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&target_ff, perms).map_err(|e| e.to_string())?;
-        }
+        download_and_install_ffmpeg(&app_handle).await?;
     }
 
     Ok("Dependencies ready".to_string())
@@ -3954,6 +4482,45 @@ fn clear_image_cache() -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LibraryCleanResult {
+    pub missing_paths: Vec<String>,
+    pub temp_files_removed: usize,
+}
+
+#[tauri::command]
+fn clean_library_files(file_paths: Vec<String>, music_dir: Option<String>) -> Result<LibraryCleanResult, String> {
+    let missing_paths: Vec<String> = file_paths
+        .into_iter()
+        .filter(|p| !Path::new(p).exists())
+        .collect();
+
+    let mut temp_files_removed = 0;
+    if let Some(md) = music_dir {
+        let dir = PathBuf::from(&md);
+        if dir.exists() {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        let ext_lower = ext.to_lowercase();
+                        if ext_lower == "part" || ext_lower == "ytdl" || ext_lower == "tmp" {
+                            if fs::remove_file(&path).is_ok() {
+                                temp_files_removed += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(LibraryCleanResult {
+        missing_paths,
+        temp_files_removed,
+    })
+}
+
 #[tauri::command]
 async fn start_oauth_server(port: u16) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -4649,6 +5216,15 @@ fn open_sound_settings() -> Result<(), String> {
 }
 
 fn main() {
+    // ── Migrate legacy app data to centralized %APPDATA%\Mewsic ─────────
+    migrate_legacy_data();
+
+    #[cfg(target_os = "windows")]
+    {
+        let webview_dir = get_mewsic_webview_dir();
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &webview_dir);
+    }
+
     #[cfg(target_os = "linux")]
     {
         // Disable WebKitGTK's native MPRIS integration to prevent duplicate entries
@@ -4705,6 +5281,8 @@ fn main() {
             tray_enabled: AtomicBool::new(true),
             dev_mode_enabled: AtomicBool::new(false),
             active_downloads: Mutex::new(std::collections::HashMap::new()),
+            is_updating_dependencies: AtomicBool::new(false),
+            dependency_update_status: Mutex::new(String::new()),
         })
         .manage(HarbourState {
             token: Mutex::new(None),
@@ -4712,12 +5290,10 @@ fn main() {
         })
         .setup(|app| {
             // ── Initialize Cover Cache Directory ──────────────────────
-            if let Ok(cache_dir) = app.path().app_cache_dir() {
-                let covers_dir = cache_dir.join("covers");
-                let _ = fs::create_dir_all(&covers_dir);
-                if let Ok(mut lock) = COVERS_CACHE_DIR.lock() {
-                    *lock = Some(covers_dir);
-                }
+            let covers_dir = get_mewsic_covers_dir();
+            let _ = fs::create_dir_all(&covers_dir);
+            if let Ok(mut lock) = COVERS_CACHE_DIR.lock() {
+                *lock = Some(covers_dir);
             }
 
 
@@ -4875,6 +5451,8 @@ fn main() {
             download_track,
             cancel_download,
             ensure_dependencies,
+            update_harbour_dependencies,
+            get_dependencies_status,
             fetch_track_metadata,
             update_media_metadata,
             update_media_playback,
@@ -4890,6 +5468,7 @@ fn main() {
             set_window_decorations,
             start_window_drag,
             clear_image_cache,
+            clean_library_files,
             get_plugins,
             get_plugins_dir,
             install_plugin_from_path,

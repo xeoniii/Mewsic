@@ -65,13 +65,6 @@
     },
     "fileAssociations": [
       {
-        "ext": ["mewsic"],
-        "name": "Mewsic Plugin",
-        "description": "Mewsic plugin package",
-        "mimeType": "application/x-mewsic-plugin",
-        "role": "Editor"
-      },
-      {
         "ext": ["mp3"],
         "name": "MP3 Audio",
         "description": "MPEG Audio Layer III",

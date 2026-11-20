@@ -25,6 +25,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useSmoothScroll } from "../../hooks/useSmoothScroll";
 import { useDisplayData } from "../../hooks/useDisplayData";
 import { useLibrary } from "../../hooks/useLibrary";
+import { useHarbourDependencies } from "../../hooks/useHarbourDependencies";
 import { formatDuration } from "../../utils/helpers";
 import { deleteTrack, cancelDownload } from "../../utils/tauriApi";
 import {
@@ -223,6 +224,14 @@ export function HarbourView() {
 
   // Download history (past 7 days) with persistent state
   const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryItem[]>(loadDownloadHistory);
+
+  // Engine / Dependencies state (yt-dlp & FFmpeg - persists globally across tab switches!)
+  const {
+    isUpdating: isUpdatingEngine,
+    statusText: engineStatusText,
+    engineInfo,
+    updateDependencies: handleUpdateDependencies,
+  } = useHarbourDependencies();
 
   // Persist download history changes to localStorage
   useEffect(() => {
@@ -1123,16 +1132,46 @@ export function HarbourView() {
                 </p>
               </div>
 
-              {downloadHistory.length > 0 && (
+              <div className="flex items-center gap-2.5 shrink-0">
                 <button
-                  onClick={handleClearHistory}
-                  className="px-3 py-1.5 rounded-xl border border-border-subtle hover:border-red-500/40 text-text-muted hover:text-red-400 text-xs font-medium flex items-center gap-1.5 transition-colors"
-                  title="Clear non-active downloads from history"
+                  type="button"
+                  onClick={handleUpdateDependencies}
+                  disabled={isUpdatingEngine}
+                  className="flex items-center gap-2 px-3.5 h-9 rounded-xl bg-surface-raised border border-border-subtle hover:border-accent/40 text-text-secondary hover:text-text-primary text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group"
+                  title={
+                    engineInfo
+                      ? `yt-dlp: ${engineInfo.yt_dlp_version} • FFmpeg: ${engineInfo.ffmpeg_version}`
+                      : "Check and update FFmpeg & yt-dlp to latest version"
+                  }
                 >
-                  <Trash2 size={13} />
-                  <span>Clear History</span>
+                  {isUpdatingEngine ? (
+                    <Loader2 size={13} className="animate-spin text-accent" />
+                  ) : (
+                    <RefreshCw size={13} className="text-accent group-hover:rotate-180 transition-transform duration-500" />
+                  )}
+                  <span>
+                    {isUpdatingEngine
+                      ? engineStatusText || "Updating..."
+                      : "Update Harbour Dependencies"}
+                  </span>
+                  {!isUpdatingEngine && engineInfo && engineInfo.yt_dlp_version !== "Not installed" && (
+                    <span className="hidden xl:inline text-[10px] font-mono font-normal text-text-muted px-1.5 py-0.5 rounded-md bg-surface-base">
+                      v{engineInfo.yt_dlp_version.split(".").slice(0, 2).join(".")}
+                    </span>
+                  )}
                 </button>
-              )}
+
+                {downloadHistory.length > 0 && (
+                  <button
+                    onClick={handleClearHistory}
+                    className="px-3 py-1.5 h-9 rounded-xl border border-border-subtle hover:border-red-500/40 text-text-muted hover:text-red-400 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Clear non-active downloads from history"
+                  >
+                    <Trash2 size={13} />
+                    <span>Clear History</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {downloadHistory.length > 0 ? (

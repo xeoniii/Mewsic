@@ -8,18 +8,38 @@ interface PluginConfigFormProps {
 }
 
 export function PluginConfigForm({ pluginId, onConfigChange }: PluginConfigFormProps) {
-  const [schema, setSchema] = useState<PluginConfigField[]>([]);
-  const [configValues, setConfigValues] = useState<Record<string, any>>({});
+  const readSchema = useCallback((id: string): PluginConfigField[] => {
+    if (typeof window !== "undefined" && window.Mewsic?.config) {
+      return window.Mewsic.config.getSchema(id) || [];
+    }
+    return [];
+  }, []);
+
+  const readValues = useCallback((id: string): Record<string, any> => {
+    if (typeof window !== "undefined" && window.Mewsic?.config) {
+      return window.Mewsic.config.getAll(id) || {};
+    }
+    return {};
+  }, []);
+
+  const [schema, setSchema] = useState<PluginConfigField[]>(() => readSchema(pluginId));
+  const [configValues, setConfigValues] = useState<Record<string, any>>(() => readValues(pluginId));
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
+  // Synchronously adjust state if pluginId prop changes
+  const [prevPluginId, setPrevPluginId] = useState(pluginId);
+  if (prevPluginId !== pluginId) {
+    setPrevPluginId(pluginId);
+    setSchema(readSchema(pluginId));
+    setConfigValues(readValues(pluginId));
+    setSaveStatus(null);
+  }
+
   const loadData = useCallback(() => {
-    if (typeof window === "undefined" || !window.Mewsic?.config) return;
-    const currentSchema = window.Mewsic.config.getSchema(pluginId) || [];
-    const currentValues = window.Mewsic.config.getAll(pluginId) || {};
-    setSchema(currentSchema);
-    setConfigValues(currentValues);
-  }, [pluginId]);
+    setSchema(readSchema(pluginId));
+    setConfigValues(readValues(pluginId));
+  }, [pluginId, readSchema, readValues]);
 
   useEffect(() => {
     loadData();
@@ -75,7 +95,7 @@ export function PluginConfigForm({ pluginId, onConfigChange }: PluginConfigFormP
             <span>Plugin Developers: Add Config</span>
           </div>
           <pre className="text-[10px] font-mono text-text-secondary leading-relaxed overflow-x-auto whitespace-pre">
-{`// In manifest.json:
+            {`// In manifest.json:
 "config": [
   { "key": "apiKey", "label": "API Key", "type": "string" }
 ]
@@ -97,7 +117,7 @@ Mewsic.config.register("${pluginId}", [
         <div>
           <h4 className="text-xs font-black uppercase tracking-wider text-text-primary flex items-center gap-2">
             <span>Plugin Settings</span>
-            <span className="text-[10px] font-mono font-normal text-text-muted bg-surface-raised px-2 py-0.5 rounded-full border border-border-subtle/40">
+            <span className="text-[10px] font-mono font-normal text-text-muted bg-surface-raised px-2 py-0.5 rounded-full">
               {schema.length} {schema.length === 1 ? "option" : "options"}
             </span>
           </h4>
@@ -132,7 +152,7 @@ Mewsic.config.register("${pluginId}", [
           return (
             <div
               key={field.key}
-              className="p-4 rounded-xl bg-surface-base/40 border border-border-subtle/60 hover:border-border-subtle transition-colors flex flex-col gap-2.5"
+              className="p-4 rounded-xl bg-surface-base/40 transition-colors flex flex-col gap-2.5"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
@@ -156,14 +176,12 @@ Mewsic.config.register("${pluginId}", [
                   <button
                     type="button"
                     onClick={() => handleChange(field.key, !val)}
-                    className={`w-11 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out relative flex-shrink-0 cursor-pointer ${
-                      val ? "bg-accent shadow-sm shadow-accent/20" : "bg-surface-overlay border border-border-subtle"
-                    }`}
+                    className={`w-11 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out relative flex-shrink-0 cursor-pointer ${val ? "bg-accent shadow-sm shadow-accent/20" : "bg-surface-overlay border border-border-subtle"
+                      }`}
                   >
                     <div
-                      className={`w-4 h-4 rounded-full transition-transform duration-200 ease-in-out shadow-md ${
-                        val ? "translate-x-5 bg-black" : "translate-x-0 bg-text-muted"
-                      }`}
+                      className={`w-4 h-4 rounded-full transition-transform duration-200 ease-in-out shadow-md ${val ? "translate-x-5 bg-black" : "translate-x-0 bg-text-muted"
+                        }`}
                     />
                   </button>
                 )}

@@ -603,7 +603,7 @@ export function initPluginApi() {
       setSystemNotifications: (v: boolean) => useStore.getState().setSystemNotifications(v),
       setTrayEnabled: (v: boolean) => {
         useStore.getState().setTrayEnabled(v);
-        invoke("set_tray_enabled", { enabled: v }).catch(() => {});
+        invoke("set_tray_enabled", { enabled: v }).catch(() => { });
       },
       setSmoothScrollEnabled: (v: boolean) => useStore.getState().setSmoothScrollEnabled(v),
       setRepeatMode: (mode: "off" | "one" | "all") => useStore.getState().setRepeatMode(mode),

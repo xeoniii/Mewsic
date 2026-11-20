@@ -55,7 +55,8 @@ function ViewRouter() {
     case "queue":    return <QueueView />;
     case "harbour":  return <HarbourView />;
     case "audio":    return <AudioView />;
-    case "plugins":  return <PluginsView />;
+    case "plugins":     return <PluginsView />;
+    case "marketplace": return <PluginsView initialView="marketplace" />;
     case "settings": return <SettingsView />;
     default:         return <HomeView />;
   }
@@ -316,23 +317,6 @@ export default function App() {
       if (!filePath) return;
 
       const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-
-      if (ext === "mewsic") {
-        // Plugin install — copy the folder to the plugins dir and prompt a reload
-        try {
-          await invoke("install_plugin_from_path", { path: filePath });
-          addNotification(
-            "Plugin installed. Reload Mewsic to activate it.",
-            "success",
-            0,
-            false,
-            "Plugin Installed"
-          );
-        } catch (e) {
-          addNotification(`Failed to install plugin: ${e}`, "error");
-        }
-        return;
-      }
 
       if (AUDIO_EXTENSIONS.has(ext)) {
         const name = filePath.split(/[\\/]/).pop() ?? filePath;

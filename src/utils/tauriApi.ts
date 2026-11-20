@@ -112,6 +112,17 @@ export async function deletePlaylist(filePath: string): Promise<void> {
 }
 
 export const clearImageCache = () => invoke("clear_image_cache");
+
+export interface LibraryCleanResult {
+  missingPaths: string[];
+  tempFilesRemoved: number;
+}
+
+export async function cleanLibraryFiles(filePaths: string[], musicDir?: string): Promise<LibraryCleanResult> {
+  const raw = await invoke<Record<string, unknown>>("clean_library_files", { filePaths, musicDir });
+  return deepCamel(raw) as LibraryCleanResult;
+}
+
 export const deleteTrack = (filePath: string) => invoke("delete_track", { filePath });
 export const getStreamUrl = (url: string): Promise<string> => invoke("get_stream_url", { url });
 
